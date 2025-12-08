@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="AddonLocalizer.Core/AddonLocalizer.Core.csproj" />
+  <Project Path="AddonLocalizer.Tests/AddonLocalizer.Tests.csproj" />
+  <Project Path="AddonLocalizer/AddonLocalizer.csproj">
+    <Deploy />
+  </Project>
+</Solution>
