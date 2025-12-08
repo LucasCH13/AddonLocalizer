@@ -10,6 +10,8 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
     private static readonly Regex LocalizationPattern = new(@"L\[""([^""]+)""", RegexOptions.Compiled);
     // Matches L[anything .. anything] pattern - concatenation INSIDE the brackets
     private static readonly Regex ConcatenationInsideBracketsPattern = new(@"L\[[^\]]*\.\.[^\]]*\]", RegexOptions.Compiled);
+    // Matches L["key"] = assignment pattern (for parsing localization definition files)
+    private static readonly Regex AssignmentPattern = new(@"^\s*L\[""([^""]+)""\]\s*=", RegexOptions.Compiled);
 
     public LuaLocalizationParserService() : this(new FileSystemService())
     {
@@ -50,6 +52,54 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         ProcessLines(lines, filePath, result);
 
         return result;
+    }
+
+    public async Task<HashSet<string>> ParseLocalizationDefinitionsAsync(string filePath)
+    {
+        if (!fileSystem.FileExists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var definedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = await fileSystem.ReadAllLinesAsync(filePath);
+
+        foreach (var line in lines)
+        {
+            // Only match L["key"] = ... patterns (assignment)
+            var match = AssignmentPattern.Match(line);
+            if (match.Success && match.Groups.Count > 1)
+            {
+                var key = match.Groups[1].Value;
+                definedKeys.Add(key);
+            }
+        }
+
+        return definedKeys;
+    }
+
+    public HashSet<string> ParseLocalizationDefinitions(string filePath)
+    {
+        if (!fileSystem.FileExists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var definedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = fileSystem.ReadAllLines(filePath);
+
+        foreach (var line in lines)
+        {
+            // Only match L["key"] = ... patterns (assignment)
+            var match = AssignmentPattern.Match(line);
+            if (match.Success && match.Groups.Count > 1)
+            {
+                var key = match.Groups[1].Value;
+                definedKeys.Add(key);
+            }
+        }
+
+        return definedKeys;
     }
 
     public ParseResult ParseDirectory(string directoryPath, string[]? excludeSubdirectories = null)

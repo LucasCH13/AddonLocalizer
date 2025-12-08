@@ -169,6 +169,99 @@ public class LuaLocalizationParserServiceTests
         Assert.DoesNotContain("GermanString", result.GlueStrings.Keys);
     }
 
+    [Fact]
+    public async Task ParseLocalizationDefinitionsAsync_OnlyMatchesAssignments()
+    {
+        var content = new[]
+        {
+            @"L[""MageFrostFull""] = ""Frost Mage""",
+            @"local x = L[""UsageNotDefinition""]",
+            @"print(L[""AnotherUsage""])",
+
+            @"L[""ValidAssignment""] = ""Some Value"""
+        };
+        SetupFileWithLines("localization.lua", content);
+
+        var result = await _parser.ParseLocalizationDefinitionsAsync("localization.lua");
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains("MageFrostFull", result);
+        Assert.Contains("ValidAssignment", result);
+        Assert.DoesNotContain("UsageNotDefinition", result);
+        Assert.DoesNotContain("AnotherUsage", result);
+    }
+
+    [Fact]
+    public async Task ParseLocalizationDefinitionsAsync_HandlesComplexAssignments()
+    {
+        var content = new[]
+        {
+            @"L[""SimpleKey""] = ""Simple Value""",
+            @"L[""ConcatKey""] = L[""Part1""] .. L[""Part2""]",
+            @"L[""FunctionKey""] = string.format(""%s - %s"", L[""A""], L[""B""])",
+
+            @"    L[""IndentedKey""] = ""Indented""",
+            @"L[""KeyWithSpaces""]    =    ""Value"""
+        };
+        SetupFileWithLines("localization.lua", content);
+
+        var result = await _parser.ParseLocalizationDefinitionsAsync("localization.lua");
+
+        // Should only capture the keys being assigned, not the keys used in the values
+        Assert.Equal(5, result.Count);
+        Assert.Contains("SimpleKey", result);
+        Assert.Contains("ConcatKey", result);
+        Assert.Contains("FunctionKey", result);
+        Assert.Contains("IndentedKey", result);
+        Assert.Contains("KeyWithSpaces", result);
+        
+        // Should NOT contain keys that appear on the right side
+        Assert.DoesNotContain("Part1", result);
+        Assert.DoesNotContain("Part2", result);
+        Assert.DoesNotContain("A", result);
+        Assert.DoesNotContain("B", result);
+    }
+
+    [Fact]
+    public void ParseLocalizationDefinitions_SynchronousVersion_WorksCorrectly()
+    {
+        var content = new[]
+        {
+            @"L[""Key1""] = ""Value1""",
+            @"L[""Key2""] = ""Value2""",
+        };
+        SetupFileWithLines("localization.lua", content);
+
+        var result = _parser.ParseLocalizationDefinitions("localization.lua");
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains("Key1", result);
+        Assert.Contains("Key2", result);
+    }
+
+    [Fact]
+    public async Task ParseLocalizationDefinitionsAsync_IgnoresNonAssignmentLines()
+    {
+        var content = new[]
+        {
+            @"-- Comment with L[""CommentKey""]",
+            @"if condition then",
+            @"    local x = L[""UsedKey""]",
+            @"end",
+            @"L[""DefinedKey""] = ""Defined Value""",
+            @"return L[""ReturnedKey""]"
+        };
+        SetupFileWithLines("localization.lua", content);
+
+        var result = await _parser.ParseLocalizationDefinitionsAsync("localization.lua");
+
+        Assert.Single(result);
+        Assert.Contains("DefinedKey", result);
+        Assert.DoesNotContain("CommentKey", result);
+        Assert.DoesNotContain("UsedKey", result);
+        Assert.DoesNotContain("ReturnedKey", result);
+    }
+
     private void SetupFileWithLines(string filePath, string[] lines)
     {
         _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);
