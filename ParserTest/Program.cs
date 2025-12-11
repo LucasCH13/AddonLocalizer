@@ -1,4 +1,4 @@
-using AddonLocalizer.Core.Services;
+﻿using AddonLocalizer.Core.Services;
 
 var parser = new LuaLocalizationParserService();
 var addonPath = @"C:\World of Warcraft\_beta_\Interface\AddOns\TwintopInsanityBar";
@@ -9,7 +9,7 @@ try
     Console.WriteLine(new string('=', 80));
     
     // Parse the main addon code (excluding Localization folder)
-    var codeResult = await parser.ParseDirectoryAsync(addonPath, new[] { "Localization" });
+    var codeResult = await parser.ParseDirectoryAsync(addonPath, ["Localization"]);
     Console.WriteLine($"Found {codeResult.GlueStrings.Count} unique glue strings used in code");
     
     // Count string.format usage
@@ -17,17 +17,17 @@ try
     Console.WriteLine($"Found {stringFormatCount} glue strings used with string.format()");
     
     // Parse enUS.lua - the default localization file
-    var enUSPath = Path.Combine(addonPath, "Localization", "enUS.lua");
-    HashSet<string> enUSKeys;
+    var enUsPath = Path.Combine(addonPath, "Localization", "enUS.lua");
+    HashSet<string> enUsKeys;
     Dictionary<string, List<AddonLocalizer.Core.Models.FormatParameter>> formatParams;
     
-    if (File.Exists(enUSPath))
+    if (File.Exists(enUsPath))
     {
-        enUSKeys = await parser.ParseLocalizationDefinitionsAsync(enUSPath);
-        Console.WriteLine($"Found {enUSKeys.Count} entries defined in enUS.lua");
+        enUsKeys = await parser.ParseLocalizationDefinitionsAsync(enUsPath);
+        Console.WriteLine($"Found {enUsKeys.Count} entries defined in enUS.lua");
         
         // Parse format parameters from enUS.lua
-        formatParams = await parser.ParseFormatParametersAsync(enUSPath);
+        formatParams = await parser.ParseFormatParametersAsync(enUsPath);
         Console.WriteLine($"Found {formatParams.Count} entries with format parameters in enUS.lua");
     }
     else
@@ -78,62 +78,62 @@ try
     Console.WriteLine(new string('=', 80));
     
     // Analysis 1: Entries used in code but NOT in enUS.lua
-    var missingInEnUS = codeResult.GlueStrings.Keys
-        .Where(key => !enUSKeys.Contains(key) && !otherLocKeys.Contains(key))
+    var missingInEnUs = codeResult.GlueStrings.Keys
+        .Where(key => !enUsKeys.Contains(key) && !otherLocKeys.Contains(key))
         .OrderBy(k => k)
         .ToList();
     
     // Analysis 2: Entries in enUS.lua but NOT used in code
-    var orphanedInEnUS = enUSKeys
+    var orphanedInEnUs = enUsKeys
         .Where(key => !codeResult.GlueStrings.ContainsKey(key))
         .OrderBy(k => k)
         .ToList();
     
     // Show results
-    Console.WriteLine($"\n?? ANALYSIS SUMMARY");
+    Console.WriteLine($"\n📊 ANALYSIS SUMMARY");
     Console.WriteLine(new string('-', 80));
     Console.WriteLine($"Total strings used in code: {codeResult.GlueStrings.Count}");
     Console.WriteLine($"With string.format() parameters: {stringFormatCount}");
     Console.WriteLine($"With format specifiers in enUS.lua: {formatParams.Count}");
-    Console.WriteLine($"Defined in enUS.lua: {enUSKeys.Count}");
+    Console.WriteLine($"Defined in enUS.lua: {enUsKeys.Count}");
     Console.WriteLine($"Defined in other loc files: {otherLocKeys.Count}");
-    Console.WriteLine($"Missing from enUS.lua: {missingInEnUS.Count}");
-    Console.WriteLine($"Orphaned in enUS.lua: {orphanedInEnUS.Count}");
+    Console.WriteLine($"Missing from enUS.lua: {missingInEnUs.Count}");
+    Console.WriteLine($"Orphaned in enUS.lua: {orphanedInEnUs.Count}");
     Console.WriteLine(new string('=', 80));
     
     // Show missing entries
-    if (missingInEnUS.Any())
+    if (missingInEnUs.Any())
     {
-        Console.WriteLine($"\n? MISSING IN enUS.lua ({missingInEnUS.Count} entries)");
+        Console.WriteLine($"\n❌ MISSING IN enUS.lua ({missingInEnUs.Count} entries)");
         Console.WriteLine("These are used in code but have NO localization entry:");
         Console.WriteLine(new string('-', 80));
         
-        foreach (var key in missingInEnUS.Take(50))
+        foreach (var key in missingInEnUs.Take(50))
         {
             var info = codeResult.GlueStrings[key];
             var formatIndicator = info.UsedInStringFormat ? " [NEEDS PARAMS]" : "";
             Console.WriteLine($"  L[\"{key}\"] = \"{key}\"{formatIndicator}  -- Used {info.OccurrenceCount}x");
         }
         
-        if (missingInEnUS.Count > 50)
+        if (missingInEnUs.Count > 50)
         {
-            Console.WriteLine($"  ... and {missingInEnUS.Count - 50} more");
+            Console.WriteLine($"  ... and {missingInEnUs.Count - 50} more");
         }
         
         // Write to file for easy copy-paste with parameter indicators
         var outputPath = Path.Combine(addonPath, "missing_enUS_entries.lua");
-        var missingEntries = missingInEnUS.Select(key =>
+        var missingEntries = missingInEnUs.Select(key =>
         {
             var info = codeResult.GlueStrings[key];
             var comment = info.UsedInStringFormat ? " -- REQUIRES FORMAT PARAMETERS" : "";
             return $"L[\"{key}\"] = \"{key}\"{comment}";
         });
         await File.WriteAllLinesAsync(outputPath, missingEntries);
-        Console.WriteLine($"\n?? Full list written to: {outputPath}");
+        Console.WriteLine($"\n💾 Full list written to: {outputPath}");
     }
     else
     {
-        Console.WriteLine($"\n? All code strings have enUS.lua entries!");
+        Console.WriteLine($"\n✅ All code strings have enUS.lua entries!");
     }
     
     // Show format parameter details
@@ -141,7 +141,7 @@ try
     {
         var sortedParams = formatParams.OrderBy(kvp => kvp.Key).ToList();
         
-        Console.WriteLine($"\n?? FORMAT PARAMETERS ({formatParams.Count} entries)");
+        Console.WriteLine($"\n📝 FORMAT PARAMETERS ({formatParams.Count} entries)");
         Console.WriteLine("Detected format specifiers in localization strings:");
         Console.WriteLine(new string('-', 80));
         
@@ -161,7 +161,7 @@ try
             // Show if used in code
             if (codeResult.GlueStrings.TryGetValue(key, out var info) && info.UsedInStringFormat)
             {
-                Console.WriteLine($"    ? Used in string.format() {info.StringFormatLocations.Count}x");
+                Console.WriteLine($"    ✓ Used in string.format() {info.StringFormatLocations.Count}x");
             }
         }
         
@@ -185,7 +185,7 @@ try
         });
         await File.WriteAllLinesAsync(formatDetailsPath, 
             new[] { "Key\tParameter Count\tParameter Types" }.Concat(formatDetails));
-        Console.WriteLine($"\n?? Detailed format info written to: {formatDetailsPath}");
+        Console.WriteLine($"\n💾 Detailed format info written to: {formatDetailsPath}");
     }
     
     // Show string.format usage details
@@ -193,7 +193,7 @@ try
     {
         var formatStrings = codeResult.WithStringFormat.OrderBy(g => g.GlueString).ToList();
         
-        Console.WriteLine($"\n?? STRING.FORMAT USAGE ({formatStrings.Count} entries)");
+        Console.WriteLine($"\n🔧 STRING.FORMAT USAGE ({formatStrings.Count} entries)");
         Console.WriteLine("These strings are used with string.format() in code:");
         Console.WriteLine(new string('-', 80));
         
@@ -215,42 +215,42 @@ try
     }
     
     // Show orphaned entries
-    if (orphanedInEnUS.Any())
+    if (orphanedInEnUs.Any())
     {
-        Console.WriteLine($"\n??  ORPHANED IN enUS.lua ({orphanedInEnUS.Count} entries)");
+        Console.WriteLine($"\n⚠️  ORPHANED IN enUS.lua ({orphanedInEnUs.Count} entries)");
         Console.WriteLine("These are defined but NEVER used in code:");
         Console.WriteLine(new string('-', 80));
         
-        foreach (var key in orphanedInEnUS.Take(50))
+        foreach (var key in orphanedInEnUs.Take(50))
         {
             Console.WriteLine($"  L[\"{key}\"]");
         }
         
-        if (orphanedInEnUS.Count > 50)
+        if (orphanedInEnUs.Count > 50)
         {
-            Console.WriteLine($"  ... and {orphanedInEnUS.Count - 50} more");
+            Console.WriteLine($"  ... and {orphanedInEnUs.Count - 50} more");
         }
         
         // Write to file for review
         var orphanedPath = Path.Combine(addonPath, "orphaned_enUS_entries.txt");
-        await File.WriteAllLinesAsync(orphanedPath, orphanedInEnUS);
-        Console.WriteLine($"\n?? Full list written to: {orphanedPath}");
+        await File.WriteAllLinesAsync(orphanedPath, orphanedInEnUs);
+        Console.WriteLine($"\n💾 Full list written to: {orphanedPath}");
     }
     else
     {
-        Console.WriteLine($"\n? No orphaned entries in enUS.lua!");
+        Console.WriteLine($"\n✅ No orphaned entries in enUS.lua!");
     }
     
     // Summary with actionable metrics
-    Console.WriteLine($"\n?? COVERAGE METRICS");
+    Console.WriteLine($"\n📈 COVERAGE METRICS");
     Console.WriteLine(new string('-', 80));
-    var coverage = ((double)(codeResult.GlueStrings.Count - missingInEnUS.Count) / codeResult.GlueStrings.Count) * 100;
-    Console.WriteLine($"enUS.lua coverage: {coverage:F1}% ({codeResult.GlueStrings.Count - missingInEnUS.Count}/{codeResult.GlueStrings.Count})");
+    var coverage = ((double)(codeResult.GlueStrings.Count - missingInEnUs.Count) / codeResult.GlueStrings.Count) * 100;
+    Console.WriteLine($"enUS.lua coverage: {coverage:F1}% ({codeResult.GlueStrings.Count - missingInEnUs.Count}/{codeResult.GlueStrings.Count})");
     
-    if (orphanedInEnUS.Any())
+    if (orphanedInEnUs.Any())
     {
-        var cleanupPotential = ((double)orphanedInEnUS.Count / enUSKeys.Count) * 100;
-        Console.WriteLine($"Cleanup potential: {cleanupPotential:F1}% ({orphanedInEnUS.Count}/{enUSKeys.Count} can be removed)");
+        var cleanupPotential = ((double)orphanedInEnUs.Count / enUsKeys.Count) * 100;
+        Console.WriteLine($"Cleanup potential: {cleanupPotential:F1}% ({orphanedInEnUs.Count}/{enUsKeys.Count} can be removed)");
     }
     
     if (stringFormatCount > 0)

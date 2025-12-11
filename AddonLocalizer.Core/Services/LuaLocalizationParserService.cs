@@ -6,16 +6,13 @@ namespace AddonLocalizer.Core.Services;
 
 public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaLocalizationParserService
 {
-    // Matches L["string"] pattern - now captures strings even if followed by concatenation
     private static readonly Regex LocalizationPattern = new(@"L\[""([^""]+)""", RegexOptions.Compiled);
-    // Matches L[anything .. anything] pattern - concatenation INSIDE the brackets
     private static readonly Regex ConcatenationInsideBracketsPattern = new(@"L\[[^\]]*\.\.[^\]]*\]", RegexOptions.Compiled);
-    // Matches L["key"] = assignment pattern (for parsing localization definition files)
     private static readonly Regex AssignmentPattern = new(@"^\s*L\[""([^""]+)""\]\s*=", RegexOptions.Compiled);
-    // Matches string.format(..., L["key"], ...) pattern
-    private static readonly Regex StringFormatPattern = new(@"string\.format\s*\([^)]*L\[""([^""]+)""\]", RegexOptions.Compiled);
-    // More specific: L["key"] as first parameter in string.format
     private static readonly Regex StringFormatFirstParamPattern = new(@"string\.format\s*\(\s*L\[""([^""]+)""\]", RegexOptions.Compiled);
+    private static readonly Regex FormatSpecifierPattern = new (@"%(?:(\d+)\$)?([+-0#]*)(\d*)(?:\.(\d+))?([sdioxXeEfgGcuaA%])", RegexOptions.Compiled);
+    
+    private const int MaxLocationsPerString = 100;
 
     public LuaLocalizationParserService() : this(new FileSystemService())
     {
@@ -30,8 +27,6 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         var result = new ParseResult();
         var luaFiles = fileSystem.GetFiles(directoryPath, "*.lua", SearchOption.AllDirectories);
-
-        // Filter out excluded subdirectories
         var filteredFiles = FilterExcludedPaths(luaFiles, directoryPath, excludeSubdirectories);
 
         foreach (var filePath in filteredFiles)
@@ -52,9 +47,7 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         var result = new ParseResult();
         var lines = await fileSystem.ReadAllLinesAsync(filePath);
-
         ProcessLines(lines, filePath, result);
-
         return result;
     }
 
@@ -70,9 +63,8 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         foreach (var line in lines)
         {
-            // Only match L["key"] = ... patterns (assignment)
             var match = AssignmentPattern.Match(line);
-            if (match.Success && match.Groups.Count > 1)
+            if (match is { Success: true, Groups.Count: > 1 })
             {
                 var key = match.Groups[1].Value;
                 definedKeys.Add(key);
@@ -94,17 +86,13 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         foreach (var line in lines)
         {
-            // Check if this is an assignment line
             var assignmentMatch = AssignmentPattern.Match(line);
             if (assignmentMatch.Success)
             {
-                // Get the part after the = (the right side)
                 var assignmentIndex = line.IndexOf('=');
                 if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
                 {
-                    var rightSide = line.Substring(assignmentIndex + 1);
-                    
-                    // Find all L["..."] patterns in the right side
+                    var rightSide = line[(assignmentIndex + 1)..];
                     var matches = LocalizationPattern.Matches(rightSide);
                     foreach (Match match in matches)
                     {
@@ -133,34 +121,30 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         foreach (var line in lines)
         {
-            // Match L["key"] = "value" pattern
             var match = AssignmentPattern.Match(line);
-            if (match.Success && match.Groups.Count > 1)
+            if (match is { Success: true, Groups.Count: > 1 })
             {
                 var key = match.Groups[1].Value;
-                
-                // Get the value part (after =)
                 var assignmentIndex = line.IndexOf('=');
                 if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
                 {
-                    var rightSide = line.Substring(assignmentIndex + 1).Trim();
-                    
-                    // Extract the string value (handle both "string" and 'string')
+                    var rightSide = line[(assignmentIndex + 1)..].Trim();
                     string? value = null;
-                    if (rightSide.StartsWith("\""))
+                    
+                    if (rightSide.StartsWith('"'))
                     {
                         var endQuote = rightSide.IndexOf('"', 1);
                         if (endQuote > 0)
                         {
-                            value = rightSide.Substring(1, endQuote - 1);
+                            value = rightSide[1..endQuote];
                         }
                     }
-                    else if (rightSide.StartsWith("'"))
+                    else if (rightSide.StartsWith('\''))
                     {
                         var endQuote = rightSide.IndexOf('\'', 1);
                         if (endQuote > 0)
                         {
-                            value = rightSide.Substring(1, endQuote - 1);
+                            value = rightSide[1..endQuote];
                         }
                     }
                     
@@ -182,37 +166,17 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
     private static List<FormatParameter> ParseFormatSpecifiers(string formatString)
     {
         var parameters = new List<FormatParameter>();
-        
-        // Regex to match Lua format specifiers
-        // Matches: %[flags][width][.precision]specifier or %position$[flags][width][.precision]specifier
-        // Flags: + - 0 # (NO SPACE to avoid false positives like "% in")
-        var formatSpecifierPattern = new Regex(
-            @"%(?:(\d+)\$)?([+-0#]*)(\d*)(?:\.(\d+))?([sdioxXeEfgGcuaA%])",
-            RegexOptions.Compiled
-        );
-        
-        var matches = formatSpecifierPattern.Matches(formatString);
+        var matches = FormatSpecifierPattern.Matches(formatString);
         var position = 1;
         
         foreach (Match match in matches)
         {
             var specifierChar = match.Groups[5].Value[0];
-            var hasPositionalIndex = !string.IsNullOrEmpty(match.Groups[1].Value);
+            var hasPositionalIndex = !string.IsNullOrWhiteSpace(match.Groups[1].Value);
             var positionalIndex = hasPositionalIndex ? int.Parse(match.Groups[1].Value) : 0;
             
-            // Parse width (group 3) - can be empty
-            int? width = null;
-            if (!string.IsNullOrEmpty(match.Groups[3].Value))
-            {
-                width = int.Parse(match.Groups[3].Value);
-            }
-            
-            // Parse precision (group 4) - can be empty
-            int? precision = null;
-            if (!string.IsNullOrEmpty(match.Groups[4].Value))
-            {
-                precision = int.Parse(match.Groups[4].Value);
-            }
+            int? width = !string.IsNullOrWhiteSpace(match.Groups[3].Value) ? int.Parse(match.Groups[3].Value) : null;
+            int? precision = !string.IsNullOrWhiteSpace(match.Groups[4].Value) ? int.Parse(match.Groups[4].Value) : null;
             
             var paramType = specifierChar switch
             {
@@ -260,9 +224,8 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         foreach (var line in lines)
         {
-            // Only match L["key"] = ... patterns (assignment)
             var match = AssignmentPattern.Match(line);
-            if (match.Success && match.Groups.Count > 1)
+            if (match is { Success: true, Groups.Count: > 1 })
             {
                 var key = match.Groups[1].Value;
                 definedKeys.Add(key);
@@ -284,17 +247,13 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         foreach (var line in lines)
         {
-            // Check if this is an assignment line
             var assignmentMatch = AssignmentPattern.Match(line);
             if (assignmentMatch.Success)
             {
-                // Get the part after the = (the right side)
                 var assignmentIndex = line.IndexOf('=');
                 if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
                 {
-                    var rightSide = line.Substring(assignmentIndex + 1);
-                    
-                    // Find all L["..."] patterns in the right side
+                    var rightSide = line[(assignmentIndex + 1)..];
                     var matches = LocalizationPattern.Matches(rightSide);
                     foreach (Match match in matches)
                     {
@@ -320,8 +279,6 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         var result = new ParseResult();
         var luaFiles = fileSystem.GetFiles(directoryPath, "*.lua", SearchOption.AllDirectories);
-
-        // Filter out excluded subdirectories
         var filteredFiles = FilterExcludedPaths(luaFiles, directoryPath, excludeSubdirectories);
 
         foreach (var filePath in filteredFiles)
@@ -342,13 +299,11 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         var result = new ParseResult();
         var lines = fileSystem.ReadAllLines(filePath);
-
         ProcessLines(lines, filePath, result);
-
         return result;
     }
 
-    private string[] FilterExcludedPaths(string[] filePaths, string baseDirectory, string[]? excludeSubdirectories)
+    private static string[] FilterExcludedPaths(string[] filePaths, string baseDirectory, string[]? excludeSubdirectories)
     {
         if (excludeSubdirectories == null || excludeSubdirectories.Length == 0)
         {
@@ -357,19 +312,14 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
         return filePaths.Where(filePath =>
         {
-            // Normalize the file path to use consistent separators
             var normalizedFilePath = filePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
             
-            // Check if the file path contains any of the excluded subdirectories
-            foreach (var excludedSubdir in excludeSubdirectories)
+            foreach (var excludedSubdirectory in excludeSubdirectories)
             {
-                var normalizedExclude = excludedSubdir.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-                
-                // Check if the path contains the excluded subdirectory as a complete path segment
+                var normalizedExclude = excludedSubdirectory.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
                 var pathSegments = normalizedFilePath.Split(Path.DirectorySeparatorChar);
                 var excludeSegments = normalizedExclude.Split(Path.DirectorySeparatorChar);
                 
-                // Check if excludeSegments appear consecutively in pathSegments
                 for (int i = 0; i <= pathSegments.Length - excludeSegments.Length; i++)
                 {
                     bool matches = true;
@@ -384,12 +334,12 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                     
                     if (matches)
                     {
-                        return false; // Exclude this file
+                        return false;
                     }
                 }
             }
             
-            return true; // Include this file
+            return true;
         }).ToArray();
     }
 
@@ -398,17 +348,16 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
-    private void ProcessLines(string[] lines, string filePath, ParseResult result)
+    private static void ProcessLines(string[] lines, string filePath, ParseResult result)
     {
+        // Track which glue strings appear in this file
+        var stringsInThisFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
             var lineNumber = i + 1;
             
-            // Check if this line has concatenation inside brackets: L["string" .. var]
-            var hasConcatenationInsideBrackets = ConcatenationInsideBracketsPattern.IsMatch(line);
-            
-            // Check if line contains string.format with L["..."] as first parameter
             var formatMatches = StringFormatFirstParamPattern.Matches(line);
             var keysInStringFormat = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             
@@ -420,57 +369,90 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                 }
             }
             
+            var lineConcatenationMatches = ConcatenationInsideBracketsPattern.Matches(line);
+            var concatenatedKeysOnLine = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            
+            foreach (Match concatMatch in lineConcatenationMatches)
+            {
+                var concatText = concatMatch.Value;
+                var keyMatch = Regex.Match(concatText, @"L\[""([^""]+)""");
+                if (keyMatch.Success)
+                {
+                    concatenatedKeysOnLine.Add(keyMatch.Groups[1].Value);
+                }
+            }
+            
             var matches = LocalizationPattern.Matches(line);
 
-            if (matches.Count > 0)
+            foreach (Match match in matches)
             {
-                foreach (Match match in matches)
+                if (match.Success && match.Groups.Count > 1)
                 {
-                    if (match.Success && match.Groups.Count > 1)
+                    var glueString = match.Groups[1].Value;
+                    var isInStringFormat = keysInStringFormat.Contains(glueString);
+                    var isConcatenated = concatenatedKeysOnLine.Contains(glueString);
+
+                    if (!result.GlueStrings.TryGetValue(glueString, out var info))
                     {
-                        var glueString = match.Groups[1].Value;
-                        var isInStringFormat = keysInStringFormat.Contains(glueString);
+                        info = new GlueStringInfo
+                        {
+                            GlueString = glueString,
+                            HasConcatenation = isConcatenated,
+                            UsedInStringFormat = isInStringFormat
+                        };
+                        result.GlueStrings[glueString] = info;
+                    }
+                    else
+                    {
+                        if (isConcatenated) info.HasConcatenation = true;
+                        if (isInStringFormat) info.UsedInStringFormat = true;
+                    }
 
-                        if (!result.GlueStrings.TryGetValue(glueString, out var info))
-                        {
-                            info = new GlueStringInfo
-                            {
-                                GlueString = glueString,
-                                HasConcatenation = hasConcatenationInsideBrackets,
-                                UsedInStringFormat = isInStringFormat
-                            };
-                            result.GlueStrings[glueString] = info;
-                        }
-                        else
-                        {
-                            // If we find it used in string.format later, update the flag
-                            if (isInStringFormat && !info.UsedInStringFormat)
-                            {
-                                info.UsedInStringFormat = true;
-                            }
-                        }
+                    info.OccurrenceCount++;
+                    
+                    // Track that this string appears in this file
+                    stringsInThisFile.Add(glueString);
 
-                        info.OccurrenceCount++;
-
-                        if (hasConcatenationInsideBrackets)
+                    // Store detailed line locations ONLY for problematic cases
+                    if (isConcatenated && info.Locations.Count < MaxLocationsPerString)
+                    {
+                        info.Locations.Add(new GlueStringLocation
                         {
-                            info.Locations.Add(new GlueStringLocation
-                            {
-                                FilePath = filePath,
-                                LineNumber = lineNumber
-                            });
-                        }
-                        
-                        if (isInStringFormat)
+                            FilePath = filePath,
+                            LineNumber = lineNumber
+                        });
+                    }
+                    
+                    if (isInStringFormat && info.StringFormatLocations.Count < MaxLocationsPerString)
+                    {
+                        info.StringFormatLocations.Add(new GlueStringLocation
                         {
-                            info.StringFormatLocations.Add(new GlueStringLocation
-                            {
-                                FilePath = filePath,
-                                LineNumber = lineNumber
-                            });
-                        }
+                            FilePath = filePath,
+                            LineNumber = lineNumber
+                        });
                     }
                 }
+            }
+        }
+        
+        // After processing all lines, ensure each glue string has a file reference
+        // This populates the Files column even for non-problematic strings
+        foreach (var glueString in stringsInThisFile)
+        {
+            var info = result.GlueStrings[glueString];
+            
+            // Check if this file is already in Locations
+            bool fileAlreadyTracked = info.Locations.Any(l => 
+                l.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+            
+            // If not tracked yet and we have room, add a file-only reference
+            if (!fileAlreadyTracked && info.Locations.Count < MaxLocationsPerString)
+            {
+                info.Locations.Add(new GlueStringLocation
+                {
+                    FilePath = filePath,
+                    LineNumber = 0  // 0 = file reference only, no specific line
+                });
             }
         }
     }
@@ -481,33 +463,32 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         {
             if (!target.GlueStrings.TryGetValue(glueString, out var targetInfo))
             {
-                targetInfo = new GlueStringInfo
-                {
-                    GlueString = glueString,
-                    HasConcatenation = sourceInfo.HasConcatenation,
-                    UsedInStringFormat = sourceInfo.UsedInStringFormat
-                };
-                target.GlueStrings[glueString] = targetInfo;
+                target.GlueStrings[glueString] = sourceInfo;
             }
             else
             {
-                // Merge the UsedInStringFormat flag
-                if (sourceInfo.UsedInStringFormat && !targetInfo.UsedInStringFormat)
+                if (sourceInfo.HasConcatenation) targetInfo.HasConcatenation = true;
+                if (sourceInfo.UsedInStringFormat) targetInfo.UsedInStringFormat = true;
+                
+                targetInfo.OccurrenceCount += sourceInfo.OccurrenceCount;
+
+                if (targetInfo.Locations.Count < MaxLocationsPerString)
                 {
-                    targetInfo.UsedInStringFormat = true;
+                    var toAdd = Math.Min(
+                        sourceInfo.Locations.Count,
+                        MaxLocationsPerString - targetInfo.Locations.Count
+                    );
+                    targetInfo.Locations.AddRange(sourceInfo.Locations.Take(toAdd));
                 }
-            }
-
-            targetInfo.OccurrenceCount += sourceInfo.OccurrenceCount;
-
-            if (sourceInfo.HasConcatenation)
-            {
-                targetInfo.Locations.AddRange(sourceInfo.Locations);
-            }
-            
-            if (sourceInfo.UsedInStringFormat)
-            {
-                targetInfo.StringFormatLocations.AddRange(sourceInfo.StringFormatLocations);
+                
+                if (targetInfo.StringFormatLocations.Count < MaxLocationsPerString)
+                {
+                    var toAdd = Math.Min(
+                        sourceInfo.StringFormatLocations.Count,
+                        MaxLocationsPerString - targetInfo.StringFormatLocations.Count
+                    );
+                    targetInfo.StringFormatLocations.AddRange(sourceInfo.StringFormatLocations.Take(toAdd));
+                }
             }
         }
     }

@@ -1,4 +1,5 @@
-﻿using CommunityToolkit.Maui.Alerts;
+﻿using AddonLocalizer.Pages;
+using CommunityToolkit.Maui.Alerts;
 using CommunityToolkit.Maui.Core;
 using Font = Microsoft.Maui.Font;
 
@@ -9,9 +10,15 @@ namespace AddonLocalizer
         public AppShell()
         {
             InitializeComponent();
+            
+            // Register routes for navigation
+            Routing.RegisterRoute("localizations", typeof(LocalizationGridPage));
+            Routing.RegisterRoute("detail", typeof(LocalizationDetailPage));
+            
             var currentTheme = Application.Current!.RequestedTheme;
             ThemeSegmentedControl.SelectedIndex = currentTheme == AppTheme.Light ? 0 : 1;
         }
+        
         public static async Task DisplaySnackbarAsync(string message)
         {
             var cancellationTokenSource = new CancellationTokenSource();

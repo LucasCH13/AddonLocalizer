@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:AddonLocalizer.PageModels"
+             x:Class="AddonLocalizer.Pages.LocalizationHomePage"
+             x:DataType="vm:LocalizationHomePageModel"
+             Title="Addon Localizer"
+             BackgroundColor="{AppThemeBinding Light={StaticResource PageBackgroundLight}, Dark={StaticResource PageBackgroundDark}}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="20">
+            
+            <!-- Header -->
+            <Label Text="Addon Localizer"
+                   FontSize="32"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"
+                   Margin="0,20,0,10"/>
+
+            <Label Text="Parse and analyze WoW addon localization files"
+                   FontSize="16"
+                   HorizontalOptions="Center"
+                   TextColor="{AppThemeBinding Light={StaticResource TextSecondaryLight}, Dark={StaticResource TextSecondaryDark}}"
+                   Margin="0,0,0,30"/>
+
+            <!-- Directory Selection Card -->
+            <Border StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light={StaticResource CardBorderLight}, Dark={StaticResource CardBorderDark}}"
+                    Background="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Padding="20"
+                    StrokeShape="RoundRectangle 10">
+                <VerticalStackLayout Spacing="15">
+                    
+                    <Label Text="Select Addon Directory"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                    <Label Text="{Binding SelectedDirectory, StringFormat='Current: {0}'}"
+                           IsVisible="{Binding SelectedDirectory, Converter={StaticResource IsNotNullConverter}}"
+                           FontSize="14"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"/>
+
+                    <HorizontalStackLayout Spacing="10">
+                        <Button Text="Browse..."
+                                Command="{Binding SelectDirectoryCommand}"
+                                HorizontalOptions="Start"
+                                IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                                WidthRequest="150"/>
+
+                        <Button Text="Clear"
+                                Command="{Binding ClearDirectoryCommand}"
+                                IsVisible="{Binding SelectedDirectory, Converter={StaticResource IsNotNullConverter}}"
+                                IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray400Dark}}"
+                                TextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource TextPrimaryDark}}"
+                                WidthRequest="100"/>
+                    </HorizontalStackLayout>
+
+                    <HorizontalStackLayout Spacing="10">
+                        <Button Text="Parse Directory"
+                                Command="{Binding ParseDirectoryCommand}"
+                                IsEnabled="{Binding SelectedDirectory, Converter={StaticResource IsNotNullConverter}}"
+                                IsVisible="{Binding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                TextColor="{AppThemeBinding Light=White, Dark={StaticResource PrimaryDarkText}}"
+                                FontAttributes="Bold"
+                                HeightRequest="50"
+                                HorizontalOptions="Fill"/>
+
+                        <Button Text="Cancel"
+                                Command="{Binding CancelParsingCommand}"
+                                IsVisible="{Binding CanCancel}"
+                                BackgroundColor="#FF3300"
+                                TextColor="White"
+                                FontAttributes="Bold"
+                                HeightRequest="50"
+                                HorizontalOptions="Fill"/>
+                    </HorizontalStackLayout>
+
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Status Card -->
+            <Border StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light={StaticResource CardBorderLight}, Dark={StaticResource CardBorderDark}}"
+                    Background="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Padding="20"
+                    StrokeShape="RoundRectangle 10">
+                <VerticalStackLayout Spacing="10">
+                    
+                    <Label Text="Status"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                    <ActivityIndicator IsRunning="{Binding IsLoading}"
+                                     IsVisible="{Binding IsLoading}"
+                                     Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                     HeightRequest="30"/>
+
+                    <Label Text="{Binding StatusMessage}"
+                           FontSize="14"
+                           TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Statistics Card -->
+            <Border StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light={StaticResource CardBorderLight}, Dark={StaticResource CardBorderDark}}"
+                    Background="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Padding="20"
+                    StrokeShape="RoundRectangle 10"
+                    IsVisible="{Binding HasData}">
+                <VerticalStackLayout Spacing="15">
+                    
+                    <Label Text="Statistics"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
+                        
+                        <Label Grid.Row="0" Grid.Column="0"
+                               Text="Total Entries:"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                        <Label Grid.Row="0" Grid.Column="1"
+                               Text="{Binding TotalEntries}"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                        <Label Grid.Row="1" Grid.Column="0"
+                               Text="Concatenated:"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                        <Label Grid.Row="1" Grid.Column="1"
+                               Text="{Binding ConcatenatedEntries}"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                        <Label Grid.Row="2" Grid.Column="0"
+                               Text="With String.format:"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                        <Label Grid.Row="2" Grid.Column="1"
+                               Text="{Binding StringFormatEntries}"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                    </Grid>
+
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
