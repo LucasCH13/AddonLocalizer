@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:AddonLocalizer.PageModels"
              xmlns:model="clr-namespace:AddonLocalizer.Models"
+             xmlns:syncfusion="clr-namespace:Syncfusion.Maui.DataGrid;assembly=Syncfusion.Maui.DataGrid"
              x:Class="AddonLocalizer.Pages.LocalizationGridPage"
              x:DataType="vm:LocalizationGridPageModel"
              Title="Localizations"
@@ -77,7 +78,64 @@
                               HeightRequest="50"
                               ZIndex="2"/>
             
-            <!-- DataGrid will be added programmatically -->
+            <!-- DataGrid -->
+            <syncfusion:SfDataGrid x:Name="dataGrid"
+                                   ItemsSource="{Binding FilteredEntries}"
+                                   IsVisible="{Binding HasData}"
+                                   SelectionMode="None"
+                                   AutoGenerateColumnsMode="None"
+                                   AllowResizingColumns="True"
+                                   AllowSorting="True"
+                                   ColumnWidthMode="Fill"
+                                   HeaderRowHeight="48"
+                                   RowHeight="44"
+                                   HorizontalOptions="Fill"
+                                   VerticalOptions="Fill"
+                                   GridLinesVisibility="Both"
+                                   HeaderGridLinesVisibility="Both"
+                                   Background="#1E1E1E">
+                
+                <syncfusion:SfDataGrid.DefaultStyle>
+                    <syncfusion:DataGridStyle HeaderRowTextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                              HeaderRowFontAttributes="Bold"
+                                              HeaderRowFontSize="20"
+                                             RowTextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource TextPrimaryDark}}"/>
+                </syncfusion:SfDataGrid.DefaultStyle>
+                
+                <syncfusion:SfDataGrid.Columns>
+                    <syncfusion:DataGridTextColumn HeaderText="Glue String" 
+                                                  MappingName="GlueString" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="Count" 
+                                                  MappingName="OccurrenceCount" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="Concat" 
+                                                  MappingName="ConcatenationIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="Format" 
+                                                  MappingName="StringFormatIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="Params" 
+                                                  MappingName="ParameterCount" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="Files" 
+                                                  MappingName="FileLocations" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="150"
+                                                  AllowSorting="True"/>
+                </syncfusion:SfDataGrid.Columns>
+                
+            </syncfusion:SfDataGrid>
 
         </Grid>
 
