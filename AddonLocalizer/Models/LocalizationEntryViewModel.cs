@@ -314,5 +314,32 @@ public partial class LocalizationEntryViewModel : ObservableObject
     public List<FormatParameter> GetFormatParameters() => _sourceInfo.FormatParameters;
 
     public string ConcatenationIcon => HasConcatenation ? "X" : "";
-    public string StringFormatIcon => UsedInStringFormat ? "X" : "";
+    public string StringFormatIcon
+    {
+        get
+        {
+            if (!UsedInStringFormat) return "";
+            
+            var formatParams = _sourceInfo.FormatParameters;
+            if (formatParams == null || formatParams.Count == 0)
+            {
+                return "X"; // Has string.format but no parameter info
+            }
+            
+            // Filter out percent signs (they're escape sequences, not parameters)
+            var actualParams = formatParams
+                .Where(p => p.Type != FormatParameterType.Percent)
+                .ToList();
+            
+            if (actualParams.Count == 0)
+            {
+                return "X";
+            }
+            
+            // List each parameter's type in order (don't group/deduplicate)
+            var paramTypes = actualParams.Select(p => p.Type.ToString()).ToList();
+            
+            return $"{actualParams.Count} - {string.Join(", ", paramTypes)}";
+        }
+    }
 }

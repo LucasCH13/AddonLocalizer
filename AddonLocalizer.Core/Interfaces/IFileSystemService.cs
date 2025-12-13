@@ -11,4 +11,5 @@ public interface IFileSystemService
     string[] ReadAllLines(string path);
     Task WriteAllTextAsync(string path, string contents);
     Task WriteAllLinesAsync(string path, IEnumerable<string> lines);
+    void DeleteFile(string path);
 }

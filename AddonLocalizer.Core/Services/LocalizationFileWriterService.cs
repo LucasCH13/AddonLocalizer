@@ -1,4 +1,3 @@
-using System.Text;
 using AddonLocalizer.Core.Interfaces;
 using AddonLocalizer.Core.Models;
 
@@ -7,15 +6,9 @@ namespace AddonLocalizer.Core.Services;
 /// <summary>
 /// Service for writing localization data back to Lua files
 /// </summary>
-public class LocalizationFileWriterService : ILocalizationFileWriterService
+public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILocalizationFileWriterService
 {
-    private readonly IFileSystemService _fileSystem;
     private const string BackupExtension = ".backup";
-
-    public LocalizationFileWriterService(IFileSystemService fileSystem)
-    {
-        _fileSystem = fileSystem;
-    }
 
     public LocalizationFileWriterService() : this(new FileSystemService())
     {
@@ -34,7 +27,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         Dictionary<string, string> translations,
         bool createBackup = true)
     {
-        if (!_fileSystem.DirectoryExists(localizationDir))
+        if (!fileSystem.DirectoryExists(localizationDir))
         {
             throw new DirectoryNotFoundException($"Localization directory not found: {localizationDir}");
         }
@@ -47,23 +40,23 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         var filePath = Path.Combine(localizationDir, $"{localeCode}.lua");
 
         // Create backup if file exists and backup is requested
-        if (createBackup && _fileSystem.FileExists(filePath))
+        if (createBackup && fileSystem.FileExists(filePath))
         {
             await CreateBackupAsync(filePath);
         }
 
         // Read existing file structure if it exists
         List<string>? existingLines = null;
-        if (_fileSystem.FileExists(filePath))
+        if (fileSystem.FileExists(filePath))
         {
-            existingLines = (await _fileSystem.ReadAllLinesAsync(filePath)).ToList();
+            existingLines = (await fileSystem.ReadAllLinesAsync(filePath)).ToList();
         }
 
         // Generate new file content
         var newContent = GenerateLocaleFileContent(localeCode, translations, existingLines);
 
         // Write to file
-        await _fileSystem.WriteAllLinesAsync(filePath, newContent);
+        await fileSystem.WriteAllLinesAsync(filePath, newContent);
     }
 
     /// <summary>
@@ -75,7 +68,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         bool createBackup = true,
         IProgress<SaveProgress>? progress = null)
     {
-        if (!_fileSystem.DirectoryExists(localizationDir))
+        if (!fileSystem.DirectoryExists(localizationDir))
         {
             throw new DirectoryNotFoundException($"Localization directory not found: {localizationDir}");
         }
@@ -120,14 +113,14 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var backupPath = $"{filePath}.{timestamp}{BackupExtension}";
         
-        var content = await _fileSystem.ReadAllTextAsync(filePath);
-        await _fileSystem.WriteAllTextAsync(backupPath, content);
+        var content = await fileSystem.ReadAllTextAsync(filePath);
+        await fileSystem.WriteAllTextAsync(backupPath, content);
     }
 
     /// <summary>
     /// Generate the complete Lua file content
     /// </summary>
-    private List<string> GenerateLocaleFileContent(
+    private static List<string> GenerateLocaleFileContent(
         string localeCode, 
         Dictionary<string, string> translations,
         List<string>? existingLines)
@@ -169,7 +162,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
     /// <summary>
     /// Merge new translations with existing file structure
     /// </summary>
-    private List<string> MergeWithExistingFile(
+    private static List<string> MergeWithExistingFile(
         List<string> existingLines,
         Dictionary<string, string> translations)
     {
@@ -180,7 +173,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         var localeBlockEndIndex = -1;
 
         // Find the locale block boundaries
-        for (int i = 0; i < existingLines.Count; i++)
+        for (var i = 0; i < existingLines.Count; i++)
         {
             var line = existingLines[i].TrimStart();
             
@@ -197,7 +190,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         }
 
         // Copy everything before the locale block
-        for (int i = 0; i <= localeBlockStartIndex; i++)
+        for (var i = 0; i <= localeBlockStartIndex; i++)
         {
             result.Add(existingLines[i]);
         }
@@ -206,7 +199,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         if (localeBlockStartIndex >= 0)
         {
             // Add local L = TRB.Localization line if exists
-            for (int i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
+            for (var i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
             {
                 var line = existingLines[i];
                 
@@ -244,7 +237,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
             }
 
             // Add new translations that weren't in the original file
-            var defaultIndent = "    ";
+            const string defaultIndent = "    ";
             foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
             {
                 if (!processedKeys.Contains(key) && !string.IsNullOrWhiteSpace(value))
@@ -258,7 +251,7 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
             result.Add(existingLines[localeBlockEndIndex]);
 
             // Copy everything after the locale block
-            for (int i = localeBlockEndIndex + 1; i < existingLines.Count; i++)
+            for (var i = localeBlockEndIndex + 1; i < existingLines.Count; i++)
             {
                 result.Add(existingLines[i]);
             }
@@ -316,14 +309,14 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         var directory = Path.GetDirectoryName(filePath);
         var fileName = Path.GetFileName(filePath);
 
-        if (directory != null && _fileSystem.DirectoryExists(directory))
+        if (directory != null && fileSystem.DirectoryExists(directory))
         {
             var backupPattern = $"{fileName}.*{BackupExtension}";
-            var backupFiles = _fileSystem.GetFiles(directory, backupPattern, SearchOption.TopDirectoryOnly);
+            var backupFiles = fileSystem.GetFiles(directory, backupPattern, SearchOption.TopDirectoryOnly);
 
             foreach (var backup in backupFiles)
             {
-                File.Delete(backup);
+                fileSystem.DeleteFile(backup);
             }
         }
 
@@ -339,13 +332,13 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         var directory = Path.GetDirectoryName(filePath);
         var fileName = Path.GetFileName(filePath);
 
-        if (directory == null || !_fileSystem.DirectoryExists(directory))
+        if (directory == null || !fileSystem.DirectoryExists(directory))
         {
             throw new DirectoryNotFoundException($"Directory not found: {directory}");
         }
 
         var backupPattern = $"{fileName}.*{BackupExtension}";
-        var backupFiles = _fileSystem.GetFiles(directory, backupPattern, SearchOption.TopDirectoryOnly)
+        var backupFiles = fileSystem.GetFiles(directory, backupPattern, SearchOption.TopDirectoryOnly)
             .OrderByDescending(f => f)
             .ToArray();
 
@@ -355,8 +348,8 @@ public class LocalizationFileWriterService : ILocalizationFileWriterService
         }
 
         var mostRecentBackup = backupFiles[0];
-        var content = await _fileSystem.ReadAllTextAsync(mostRecentBackup);
-        await _fileSystem.WriteAllTextAsync(filePath, content);
+        var content = await fileSystem.ReadAllTextAsync(mostRecentBackup);
+        await fileSystem.WriteAllTextAsync(filePath, content);
     }
 }
 

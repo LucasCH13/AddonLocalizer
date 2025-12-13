@@ -31,4 +31,7 @@ public class FileSystemService : IFileSystemService
     
     public Task WriteAllLinesAsync(string path, IEnumerable<string> lines)
         => File.WriteAllLinesAsync(path, lines, Utf8Encoding);
+    
+    public void DeleteFile(string path) 
+        => File.Delete(path);
 }

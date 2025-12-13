@@ -34,7 +34,29 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private bool _showOnlyWithParameters;
 
     [ObservableProperty]
-    private bool _showOnlyMissingTranslations;
+    private string? _missingTranslationLocale;
+
+    [ObservableProperty]
+    private ObservableCollection<string> _availableLocales = new()
+    {
+        "None",
+        "Any",
+        "enUS",
+        "enGB",
+        "enTW",
+        "enCN",
+        "deDE",
+        "esES",
+        "esMX",
+        "frFR",
+        "itIT",
+        "koKR",
+        "ptBR",
+        "ptPT",
+        "ruRU",
+        "zhCN",
+        "zhTW"
+    };
 
     [ObservableProperty]
     private LocalizationEntryViewModel? _selectedEntry;
@@ -58,24 +80,6 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private string _statusMessage = string.Empty;
 
     [ObservableProperty]
-    private string _glueStringHeader = "Glue String ^";
-
-    [ObservableProperty]
-    private string _countHeader = "Count";
-
-    [ObservableProperty]
-    private string _concatHeader = "Concat";
-
-    [ObservableProperty]
-    private string _formatHeader = "Format";
-
-    [ObservableProperty]
-    private string _paramsHeader = "Params";
-
-    [ObservableProperty]
-    private string _filesHeader = "Files";
-
-    [ObservableProperty]
     private bool _hasUnsavedChanges;
 
     [ObservableProperty]
@@ -87,8 +91,6 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private ParseResult? _parseResult;
     private LocalizationDataSet? _localizationData;
     private string? _localizationDirectory;
-    private string _currentSortColumn = "GlueString";
-    private bool _sortAscending = true;
 
     public LocalizationGridPageModel(ILocalizationFileWriterService fileWriter, IDialogService dialogService)
     {
@@ -305,7 +307,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         ApplyFilters();
     }
 
-    partial void OnShowOnlyMissingTranslationsChanged(bool value)
+    partial void OnMissingTranslationLocaleChanged(string? value)
     {
         ApplyFilters();
     }
@@ -344,76 +346,66 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             filtered = filtered.Where(e => e.ParameterCount > 0);
         }
 
-        if (ShowOnlyMissingTranslations)
+        if (!string.IsNullOrWhiteSpace(MissingTranslationLocale) && MissingTranslationLocale != "None")
         {
-            filtered = filtered.Where(e => e.IsMissingTranslations);
+            if (MissingTranslationLocale == "Any")
+            {
+                filtered = filtered.Where(e => e.IsMissingTranslations);
+            }
+            else
+            {
+                filtered = filtered.Where(e => IsMissingTranslationForLocale(e, MissingTranslationLocale));
+            }
         }
-
-        filtered = ApplySort(filtered);
 
         FilteredEntries = new ObservableCollection<LocalizationEntryViewModel>(filtered);
         FilteredCount = FilteredEntries.Count;
         HasData = FilteredCount > 0;
-        Debug.WriteLine($"[GridPage] ApplyFilters: FilteredCount={FilteredCount}, HasData={HasData}");
-    }
-
-    private IEnumerable<LocalizationEntryViewModel> ApplySort(IEnumerable<LocalizationEntryViewModel> items)
-    {
-        var ordered = _currentSortColumn switch
-        {
-            "GlueString" => _sortAscending 
-                ? items.OrderBy(e => e.GlueString) 
-                : items.OrderByDescending(e => e.GlueString),
-            "Count" => _sortAscending 
-                ? items.OrderBy(e => e.OccurrenceCount) 
-                : items.OrderByDescending(e => e.OccurrenceCount),
-            "Concat" => _sortAscending 
-                ? items.OrderBy(e => e.HasConcatenation) 
-                : items.OrderByDescending(e => e.HasConcatenation),
-            "Format" => _sortAscending 
-                ? items.OrderBy(e => e.UsedInStringFormat) 
-                : items.OrderByDescending(e => e.UsedInStringFormat),
-            "Params" => _sortAscending 
-                ? items.OrderBy(e => e.ParameterCount) 
-                : items.OrderByDescending(e => e.ParameterCount),
-            "Files" => _sortAscending 
-                ? items.OrderBy(e => e.FileLocations) 
-                : items.OrderByDescending(e => e.FileLocations),
-            _ => items.OrderBy(e => e.GlueString)
-        };
-
-        return ordered;
-    }
-
-    private void UpdateColumnHeaders()
-    {
-        var sortIndicator = _sortAscending ? "^" : "v";
         
-        GlueStringHeader = _currentSortColumn == "GlueString" ? $"Glue String {sortIndicator}" : "Glue String";
-        CountHeader = _currentSortColumn == "Count" ? $"Count {sortIndicator}" : "Count";
-        ConcatHeader = _currentSortColumn == "Concat" ? $"Concat {sortIndicator}" : "Concat";
-        FormatHeader = _currentSortColumn == "Format" ? $"Format {sortIndicator}" : "Format";
-        ParamsHeader = _currentSortColumn == "Params" ? $"Params {sortIndicator}" : "Params";
-        FilesHeader = _currentSortColumn == "Files" ? $"Files {sortIndicator}" : "Files";
-    }
+        // Update status message based on filter state
+        var hasActiveFilters = !string.IsNullOrWhiteSpace(SearchText) ||
+                               ShowOnlyConcatenated ||
+                               ShowOnlyStringFormat ||
+                               ShowOnlyWithParameters ||
+                               (!string.IsNullOrWhiteSpace(MissingTranslationLocale) && MissingTranslationLocale != "None");
 
-    [RelayCommand]
-    private void SortByColumn(string columnName)
-    {
-        if (_currentSortColumn == columnName)
+        var localeInfo = _localizationData != null 
+            ? $" with {_localizationData.LoadedLocales.Count()} locales" 
+            : "";
+
+        if (hasActiveFilters)
         {
-            // Toggle sort direction
-            _sortAscending = !_sortAscending;
+            StatusMessage = $"Showing {FilteredCount} of {TotalCount} ({TotalCount} total){localeInfo}";
         }
         else
         {
-            // New column, sort ascending
-            _currentSortColumn = columnName;
-            _sortAscending = true;
+            StatusMessage = $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}";
         }
+        
+        Debug.WriteLine($"[GridPage] ApplyFilters: FilteredCount={FilteredCount}, HasData={HasData}");
+    }
 
-        UpdateColumnHeaders();
-        ApplyFilters();
+    private bool IsMissingTranslationForLocale(LocalizationEntryViewModel entry, string localeCode)
+    {
+        return localeCode switch
+        {
+            "enUS" => string.IsNullOrWhiteSpace(entry.EnUS),
+            "enGB" => string.IsNullOrWhiteSpace(entry.EnGB),
+            "enTW" => string.IsNullOrWhiteSpace(entry.EnTW),
+            "enCN" => string.IsNullOrWhiteSpace(entry.EnCN),
+            "deDE" => string.IsNullOrWhiteSpace(entry.DeDE),
+            "esES" => string.IsNullOrWhiteSpace(entry.EsES),
+            "esMX" => string.IsNullOrWhiteSpace(entry.EsMX),
+            "frFR" => string.IsNullOrWhiteSpace(entry.FrFR),
+            "itIT" => string.IsNullOrWhiteSpace(entry.ItIT),
+            "koKR" => string.IsNullOrWhiteSpace(entry.KoKR),
+            "ptBR" => string.IsNullOrWhiteSpace(entry.PtBR),
+            "ptPT" => string.IsNullOrWhiteSpace(entry.PtPT),
+            "ruRU" => string.IsNullOrWhiteSpace(entry.RuRU),
+            "zhCN" => string.IsNullOrWhiteSpace(entry.ZhCN),
+            "zhTW" => string.IsNullOrWhiteSpace(entry.ZhTW),
+            _ => false
+        };
     }
 
     [RelayCommand]
@@ -423,7 +415,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         ShowOnlyConcatenated = false;
         ShowOnlyStringFormat = false;
         ShowOnlyWithParameters = false;
-        ShowOnlyMissingTranslations = false;
+        MissingTranslationLocale = "None";
     }
 
     [RelayCommand]

@@ -56,11 +56,15 @@
                 </HorizontalStackLayout>
 
                 <HorizontalStackLayout Grid.Column="3" Spacing="10">
-                    <CheckBox IsChecked="{Binding ShowOnlyMissingTranslations}"
-                              Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"/>
-                    <Label Text="Missing Translations" 
+                    <Label Text="Missing Translation:" 
                            VerticalOptions="Center"
                            TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                    <Picker ItemsSource="{Binding AvailableLocales}"
+                            SelectedItem="{Binding MissingTranslationLocale}"
+                            MinimumWidthRequest="100"
+                            TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
+                            VerticalOptions="Center"/>
                 </HorizontalStackLayout>
 
                 <Button Grid.Column="4" 
@@ -193,17 +197,25 @@
                                                   AllowSorting="True"
                                                   AllowEditing="False"/>
                     <syncfusion:DataGridTextColumn HeaderText="Concat" 
-                                                  MappingName="ConcatenationIcon" 
+                                                  MappingName="HasConcatenation" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
                                                   AllowSorting="True"
-                                                  AllowEditing="False"/>
+                                                  AllowEditing="False">
+                        <syncfusion:DataGridTextColumn.DisplayBinding>
+                            <Binding Path="ConcatenationIcon"/>
+                        </syncfusion:DataGridTextColumn.DisplayBinding>
+                    </syncfusion:DataGridTextColumn>
                     <syncfusion:DataGridTextColumn HeaderText="Format" 
-                                                  MappingName="StringFormatIcon" 
+                                                  MappingName="UsedInStringFormat" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
                                                   AllowSorting="True"
-                                                  AllowEditing="False"/>
+                                                  AllowEditing="False">
+                        <syncfusion:DataGridTextColumn.DisplayBinding>
+                            <Binding Path="StringFormatIcon"/>
+                        </syncfusion:DataGridTextColumn.DisplayBinding>
+                    </syncfusion:DataGridTextColumn>
                     <syncfusion:DataGridTextColumn HeaderText="Params" 
                                                   MappingName="ParameterCount" 
                                                   ColumnWidthMode="Auto"

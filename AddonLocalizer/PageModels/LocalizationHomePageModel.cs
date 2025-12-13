@@ -134,12 +134,78 @@ public partial class LocalizationHomePageModel : ObservableObject
                 return;
             }
 
-            Progress = 0.5;
+            Progress = 0.4;
             StatusMessage = "Loading localization files...";
 
             // Step 2: Check if Localization directory exists and load locale files
             LocalizationDataSet? localizationData = null;
             var localizationDir = Path.Combine(SelectedDirectory, "Localization");
+            
+            // Step 2.5: Parse Localization.lua and LocalizationPost.lua to exclude their definitions
+            var excludedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            
+            if (Directory.Exists(localizationDir))
+            {
+                // Parse Localization.lua for definitions
+                var localizationPath = Path.Combine(localizationDir, "Localization.lua");
+                if (File.Exists(localizationPath))
+                {
+                    try
+                    {
+                        var locKeys = await _parserService.ParseLocalizationDefinitionsAsync(localizationPath);
+                        excludedKeys.UnionWith(locKeys);
+                        StatusMessage = $"Found {locKeys.Count} entries in Localization.lua";
+                    }
+                    catch (Exception ex)
+                    {
+                        StatusMessage = $"Warning: Error parsing Localization.lua: {ex.Message}";
+                    }
+                }
+
+                // Parse LocalizationPost.lua for definitions and usages
+                var localizationPostPath = Path.Combine(localizationDir, "LocalizationPost.lua");
+                if (File.Exists(localizationPostPath))
+                {
+                    try
+                    {
+                        // Get definitions (left side)
+                        var postKeys = await _parserService.ParseLocalizationDefinitionsAsync(localizationPostPath);
+                        excludedKeys.UnionWith(postKeys);
+                        
+                        // Get usages (right side) - these are references to other localization strings
+                        var usedKeys = await _parserService.ParseLocalizationUsagesAsync(localizationPostPath);
+                        
+                        // Add these to code usage since they're being used
+                        foreach (var key in usedKeys)
+                        {
+                            if (!parseResult.GlueStrings.ContainsKey(key))
+                            {
+                                parseResult.GlueStrings[key] = new GlueStringInfo
+                                {
+                                    GlueString = key,
+                                    HasConcatenation = false,
+                                    OccurrenceCount = 1
+                                };
+                            }
+                        }
+                        
+                        StatusMessage = $"Found {postKeys.Count} definitions and {usedKeys.Count} usages in LocalizationPost.lua";
+                    }
+                    catch (Exception ex)
+                    {
+                        StatusMessage = $"Warning: Error parsing LocalizationPost.lua: {ex.Message}";
+                    }
+                }
+
+                // Remove excluded keys from parse result
+                foreach (var key in excludedKeys.ToList())
+                {
+                    parseResult.GlueStrings.Remove(key);
+                }
+            }
+
+            Progress = 0.6;
+            StatusMessage = "Loading locale translations...";
             
             if (Directory.Exists(localizationDir))
             {
@@ -194,7 +260,8 @@ public partial class LocalizationHomePageModel : ObservableObject
             HasData = TotalEntries > 0;
 
             var localeInfo = LoadedLocales > 0 ? $" with {LoadedLocales} locales" : "";
-            StatusMessage = $"Parsed {TotalEntries} localization entries{localeInfo}";
+            var excludedInfo = excludedKeys.Count > 0 ? $" ({excludedKeys.Count} excluded from Localization files)" : "";
+            StatusMessage = $"Parsed {TotalEntries} localization entries{localeInfo}{excludedInfo}";
 
             // Navigate to grid page with both parse result and localization data
             var navigationParams = new Dictionary<string, object>

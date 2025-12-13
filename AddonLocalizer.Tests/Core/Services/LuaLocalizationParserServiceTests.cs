@@ -60,11 +60,17 @@ public class LuaLocalizationParserServiceTests
 
         Assert.Equal(3, result.GlueStrings.Count);
         Assert.False(result.GlueStrings["Author"].HasConcatenation);
-        Assert.Empty(result.GlueStrings["Author"].Locations);
+        // File-only reference with LineNumber = 0 is expected for tracking which file the string appears in
+        Assert.Single(result.GlueStrings["Author"].Locations);
+        Assert.Equal(0, result.GlueStrings["Author"].Locations[0].LineNumber);
+        
         Assert.False(result.GlueStrings["Title"].HasConcatenation);
-        Assert.Empty(result.GlueStrings["Title"].Locations);
+        Assert.Single(result.GlueStrings["Title"].Locations);
+        Assert.Equal(0, result.GlueStrings["Title"].Locations[0].LineNumber);
+        
         Assert.False(result.GlueStrings["Message"].HasConcatenation);
-        Assert.Empty(result.GlueStrings["Message"].Locations);
+        Assert.Single(result.GlueStrings["Message"].Locations);
+        Assert.Equal(0, result.GlueStrings["Message"].Locations[0].LineNumber);
     }
 
     [Fact]
@@ -83,14 +89,17 @@ public class LuaLocalizationParserServiceTests
         // "Base" is in a line with concatenation inside brackets
         Assert.True(result.GlueStrings["Base"].HasConcatenation);
         Assert.Single(result.GlueStrings["Base"].Locations);
+        Assert.Equal(1, result.GlueStrings["Base"].Locations[0].LineNumber); // Actual line number for concatenated
         
         // "Simple" has no concatenation
         Assert.False(result.GlueStrings["Simple"].HasConcatenation);
-        Assert.Empty(result.GlueStrings["Simple"].Locations);
+        Assert.Single(result.GlueStrings["Simple"].Locations);
+        Assert.Equal(0, result.GlueStrings["Simple"].Locations[0].LineNumber); // File-only reference
         
         // "Key" has concatenation outside brackets, which doesn't count
         Assert.False(result.GlueStrings["Key"].HasConcatenation);
-        Assert.Empty(result.GlueStrings["Key"].Locations);
+        Assert.Single(result.GlueStrings["Key"].Locations);
+        Assert.Equal(0, result.GlueStrings["Key"].Locations[0].LineNumber); // File-only reference
     }
 
     [Fact]
@@ -108,7 +117,12 @@ public class LuaLocalizationParserServiceTests
 
         Assert.Equal(3, result.GlueStrings.Count);
         Assert.All(result.GlueStrings.Values, info => Assert.False(info.HasConcatenation));
-        Assert.All(result.GlueStrings.Values, info => Assert.Empty(info.Locations));
+        // File-only references are expected for tracking which file the string appears in
+        Assert.All(result.GlueStrings.Values, info => 
+        {
+            Assert.Single(info.Locations);
+            Assert.Equal(0, info.Locations[0].LineNumber); // LineNumber = 0 indicates file-only reference
+        });
     }
 
     [Fact]
@@ -126,7 +140,9 @@ public class LuaLocalizationParserServiceTests
         var info = result.GlueStrings["SimpleMessage"];
         Assert.False(info.HasConcatenation);
         Assert.Equal(2, info.OccurrenceCount);
-        Assert.Empty(info.Locations); // No locations for non-concatenated
+        // File-only reference is added for tracking which file the string appears in
+        Assert.Single(info.Locations);
+        Assert.Equal(0, info.Locations[0].LineNumber); // LineNumber = 0 indicates file-only reference
     }
 
     [Fact]
