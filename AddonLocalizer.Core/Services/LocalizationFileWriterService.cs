@@ -149,8 +149,8 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
 
         foreach (var (key, value) in sortedTranslations)
         {
-            var escapedValue = EscapeString(value);
-            lines.Add($"    L[\"{key}\"] = \"{escapedValue}\"");
+            // Escape the value for Lua output (handles actual newlines, etc.)
+            lines.Add($"    L[\"{key}\"] = \"{EscapeLuaString(value)}\"");
         }
 
         lines.Add("end");
@@ -168,99 +168,174 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
     {
         var result = new List<string>();
         var processedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var inLocaleBlock = false;
         var localeBlockStartIndex = -1;
         var localeBlockEndIndex = -1;
+        var hasLocaleBlock = false;
 
-        // Find the locale block boundaries
+        // Find the locale block boundaries (if present)
         for (var i = 0; i < existingLines.Count; i++)
         {
             var line = existingLines[i].TrimStart();
             
-            if (line.StartsWith("if locale =="))
+            if (line.StartsWith("if locale ==") || line.StartsWith("if locale=="))
             {
-                inLocaleBlock = true;
+                hasLocaleBlock = true;
                 localeBlockStartIndex = i;
             }
-            else if (inLocaleBlock && line.StartsWith("end"))
+            else if (hasLocaleBlock && localeBlockEndIndex == -1 && line.StartsWith("end"))
             {
                 localeBlockEndIndex = i;
                 break;
             }
         }
 
-        // Copy everything before the locale block
+        // If no locale block, find the range of L["key"] assignments
+        if (!hasLocaleBlock)
+        {
+            var firstAssignmentIndex = -1;
+            var lastAssignmentIndex = -1;
+            
+            for (var i = 0; i < existingLines.Count; i++)
+            {
+                var trimmed = existingLines[i].TrimStart();
+                if (trimmed.StartsWith("L[\""))
+                {
+                    if (firstAssignmentIndex == -1)
+                    {
+                        firstAssignmentIndex = i;
+                    }
+                    lastAssignmentIndex = i;
+                }
+            }
+
+            if (firstAssignmentIndex >= 0)
+            {
+                // Copy everything before the first assignment
+                for (var i = 0; i < firstAssignmentIndex; i++)
+                {
+                    result.Add(existingLines[i]);
+                }
+
+                // Process existing assignments
+                for (var i = firstAssignmentIndex; i <= lastAssignmentIndex; i++)
+                {
+                    var line = existingLines[i];
+                    var trimmed = line.TrimStart();
+                    
+                    if (trimmed.StartsWith("L[\""))
+                    {
+                        var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
+                        if (keyMatch.Success)
+                        {
+                            var key = keyMatch.Groups[1].Value;
+                            
+                            // Only include this key if it's in the translations dictionary
+                            if (translations.TryGetValue(key, out var newValue))
+                            {
+                                if (!string.IsNullOrWhiteSpace(newValue))
+                                {
+                                    var lineIndent = GetIndentation(line);
+                                    result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
+                                    processedKeys.Add(key);
+                                }
+                            }
+                            // If key not in translations, skip it (removes orphaned entries)
+                        }
+                    }
+                    else
+                    {
+                        // Keep non-assignment lines (comments, blank lines, etc.)
+                        result.Add(line);
+                    }
+                }
+
+                // Add new translations that weren't in the original file
+                var defaultIndent = firstAssignmentIndex > 0 
+                    ? GetIndentation(existingLines[firstAssignmentIndex]) 
+                    : "";
+                    
+                foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!processedKeys.Contains(key) && !string.IsNullOrWhiteSpace(value))
+                    {
+                        result.Add($"{defaultIndent}L[\"{key}\"] = \"{EscapeLuaString(value)}\"");
+                    }
+                }
+
+                // Copy everything after the last assignment
+                for (var i = lastAssignmentIndex + 1; i < existingLines.Count; i++)
+                {
+                    result.Add(existingLines[i]);
+                }
+
+                return result;
+            }
+            else
+            {
+                // No assignments found at all, return original with warning
+                result.Add("-- Warning: Could not find any L[\"key\"] assignments, preserving original file");
+                result.AddRange(existingLines);
+                return result;
+            }
+        }
+
+        // Has locale block - use original logic
+        // Copy everything before the locale block (including the if line)
         for (var i = 0; i <= localeBlockStartIndex; i++)
         {
             result.Add(existingLines[i]);
         }
 
-        // Process locale block
-        if (localeBlockStartIndex >= 0)
+        // Process locale block content
+        for (var i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
         {
-            // Add local L = TRB.Localization line if exists
-            for (var i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
+            var line = existingLines[i];
+            var trimmed = line.TrimStart();
+            
+            if (trimmed.StartsWith("L[\""))
             {
-                var line = existingLines[i];
-                
-                // Check if this is an assignment line
-                var trimmed = line.TrimStart();
-                if (trimmed.StartsWith("L[\""))
+                var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
+                if (keyMatch.Success)
                 {
-                    // Extract the key
-                    var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
-                    if (keyMatch.Success)
+                    var key = keyMatch.Groups[1].Value;
+                    
+                    // Only include this key if it's in the translations dictionary
+                    if (translations.TryGetValue(key, out var newValue))
                     {
-                        var key = keyMatch.Groups[1].Value;
-                        
-                        // Update with new translation if available
-                        if (translations.TryGetValue(key, out var newValue) && !string.IsNullOrWhiteSpace(newValue))
+                        if (!string.IsNullOrWhiteSpace(newValue))
                         {
                             var lineIndent = GetIndentation(line);
-                            var escapedValue = EscapeString(newValue);
-                            result.Add($"{lineIndent}L[\"{key}\"] = \"{escapedValue}\"");
+                            result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
                             processedKeys.Add(key);
                         }
-                        else if (!translations.ContainsKey(key))
-                        {
-                            // Keep existing line if key not in new translations
-                            result.Add(line);
-                        }
-                        // Skip if translation is empty string
                     }
-                }
-                else if (!trimmed.StartsWith("--") || trimmed.Contains("L["))
-                {
-                    // Keep non-assignment lines (like local L = TRB.Localization)
-                    result.Add(line);
+                    // If key not in translations, skip it (removes orphaned entries)
                 }
             }
-
-            // Add new translations that weren't in the original file
-            const string defaultIndent = "    ";
-            foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+            else if (!trimmed.StartsWith("--") || trimmed.Contains("L["))
             {
-                if (!processedKeys.Contains(key) && !string.IsNullOrWhiteSpace(value))
-                {
-                    var escapedValue = EscapeString(value);
-                    result.Add($"{defaultIndent}L[\"{key}\"] = \"{escapedValue}\"");
-                }
-            }
-
-            // Add the closing 'end'
-            result.Add(existingLines[localeBlockEndIndex]);
-
-            // Copy everything after the locale block
-            for (var i = localeBlockEndIndex + 1; i < existingLines.Count; i++)
-            {
-                result.Add(existingLines[i]);
+                // Keep non-assignment lines (like local L = TRB.Localization)
+                result.Add(line);
             }
         }
-        else
+
+        // Add new translations that weren't in the original file
+        const string defaultBlockIndent = "    ";
+        foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
         {
-            // No locale block found, return original with warning comment
-            result.Add("-- Warning: Could not merge translations, preserving original file");
-            result.AddRange(existingLines);
+            if (!processedKeys.Contains(key) && !string.IsNullOrWhiteSpace(value))
+            {
+                result.Add($"{defaultBlockIndent}L[\"{key}\"] = \"{EscapeLuaString(value)}\"");
+            }
+        }
+
+        // Add the closing 'end'
+        result.Add(existingLines[localeBlockEndIndex]);
+
+        // Copy everything after the locale block
+        for (var i = localeBlockEndIndex + 1; i < existingLines.Count; i++)
+        {
+            result.Add(existingLines[i]);
         }
 
         return result;
@@ -285,19 +360,78 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
     }
 
     /// <summary>
-    /// Escape special characters in strings for Lua
+    /// Escape special characters in strings for Lua output.
+    /// This handles ACTUAL special characters (newlines, tabs, etc.) that need to be 
+    /// represented as escape sequences in the Lua file.
+    /// It does NOT double-escape already-escaped sequences.
     /// </summary>
-    private static string EscapeString(string value)
+    private static string EscapeLuaString(string value)
     {
         if (string.IsNullOrEmpty(value))
             return value;
 
-        return value
-            .Replace("\\", "\\\\")  // Backslash must be first
-            .Replace("\"", "\\\"")  // Escape quotes
-            .Replace("\n", "\\n")   // Newline
-            .Replace("\r", "\\r")   // Carriage return
-            .Replace("\t", "\\t");  // Tab
+        var sb = new System.Text.StringBuilder(value.Length);
+        
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            
+            switch (c)
+            {
+                case '"':
+                    // Check if already escaped (previous char is backslash and that backslash is not itself escaped)
+                    if (i > 0 && value[i - 1] == '\\' && (i < 2 || value[i - 2] != '\\'))
+                    {
+                        sb.Append(c); // Already escaped, keep as-is
+                    }
+                    else
+                    {
+                        sb.Append("\\\"");
+                    }
+                    break;
+                    
+                case '\\':
+                    // Check if this backslash is an escape sequence prefix
+                    if (i + 1 < value.Length)
+                    {
+                        char next = value[i + 1];
+                        if (next == 'n' || next == 'r' || next == 't' || next == '\\' || next == '"')
+                        {
+                            // This is already an escape sequence, keep it
+                            sb.Append(c);
+                        }
+                        else
+                        {
+                            // Lone backslash, escape it
+                            sb.Append("\\\\");
+                        }
+                    }
+                    else
+                    {
+                        // Backslash at end, escape it
+                        sb.Append("\\\\");
+                    }
+                    break;
+                    
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                    
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                    
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                    
+                default:
+                    sb.Append(c);
+                    break;
+            }
+        }
+        
+        return sb.ToString();
     }
 
     /// <summary>

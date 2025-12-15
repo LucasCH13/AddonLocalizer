@@ -758,5 +758,164 @@ public class LocalizationFileWriterServiceTests
             line => Assert.True(line.StartsWith("    "), $"Line should start with 4 spaces: {line}"));
     }
 
+    [Fact]
+    public async Task SaveLocaleFileAsync_PreservesExistingEscapeSequences()
+    {
+        // This test simulates the cleanup flow where values come from parsing
+        // The parser extracts values with escape sequences as literal characters
+        var localizationDir = "/addon/Localization";
+        var localeCode = "frFR";
+        var filePath = "/addon/Localization/frFR.lua";
+        
+        // Simulate what the parser extracts - literal backslash-n (two characters)
+        // In C#, "\\n" is a string containing backslash followed by 'n'
+        var translations = new Dictionary<string, string>
+        {
+            ["TestKey"] = "Line1\\nLine2\\n\\n"  // This is what parser extracts: \n as two chars
+        };
+
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "",
+            "local locale = GetLocale()",
+            "",
+            "if locale == \"frFR\" then",
+            "    local L = TRB.Localization",
+            "    L[\"TestKey\"] = \"Line1\\nLine2\\n\\n\"",
+            "end"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(filePath)).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+        // The output should preserve the original escape sequences, not double-escape them
+        var testKeyLine = capturedLines.FirstOrDefault(l => l.Contains("TestKey"));
+        Assert.NotNull(testKeyLine);
+        Assert.Contains("Line1\\nLine2\\n\\n", testKeyLine);
+        Assert.DoesNotContain("\\\\n", testKeyLine); // Should NOT be double-escaped
+    }
+
+    [Fact]
+    public async Task SaveLocaleFileAsync_FileWithoutLocaleBlock_HandlesCorrectly()
+    {
+        // enUS.lua often doesn't have an "if locale ==" block - it's the base file
+        var localizationDir = "/addon/Localization";
+        var localeCode = "enUS";
+        
+        // Typical enUS structure without locale check
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "",
+            "TRB.Localization = {}",
+            "local L = TRB.Localization",
+            "",
+            "L[\"ExistingKey\"] = \"Existing Value\"",
+            "L[\"OrphanedKey\"] = \"This should be removed\"",
+            "L[\"AnotherKey\"] = \"Another Value\"",
+            ""
+        };
+
+        // Translations without the orphaned key
+        var translations = new Dictionary<string, string>
+        {
+            ["ExistingKey"] = "Existing Value",
+            ["AnotherKey"] = "Another Value",
+            ["NewKey"] = "New Value"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(It.IsAny<string>())).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+        
+        // Should preserve header
+        Assert.Contains("local _, TRB = ...", capturedLines);
+        Assert.Contains("TRB.Localization = {}", capturedLines);
+        
+        // Should keep existing keys that are in translations
+        Assert.Contains(capturedLines, l => l.Contains("ExistingKey"));
+        Assert.Contains(capturedLines, l => l.Contains("AnotherKey"));
+        
+        // Should add new key
+        Assert.Contains(capturedLines, l => l.Contains("NewKey"));
+        
+        // Should NOT contain orphaned key
+        Assert.DoesNotContain(capturedLines, l => l.Contains("OrphanedKey"));
+        
+        // Should NOT have warning message
+        Assert.DoesNotContain(capturedLines, l => l.Contains("Warning"));
+    }
+
+    [Fact]
+    public async Task SaveLocaleFileAsync_FileWithoutLocaleBlock_RemovesOrphanedEntries()
+    {
+        var localizationDir = "/addon/Localization";
+        var localeCode = "enUS";
+        
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "local L = TRB.Localization",
+            "L[\"Keep1\"] = \"Value1\"",
+            "L[\"Remove1\"] = \"Orphaned1\"",
+            "L[\"Keep2\"] = \"Value2\"",
+            "L[\"Remove2\"] = \"Orphaned2\"",
+            "L[\"Keep3\"] = \"Value3\""
+        };
+
+        // Only include some keys - others should be removed
+        var translations = new Dictionary<string, string>
+        {
+            ["Keep1"] = "Value1",
+            ["Keep2"] = "Value2",
+            ["Keep3"] = "Value3"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(It.IsAny<string>())).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+        
+        // Should keep the keys that are in translations
+        Assert.Contains(capturedLines, l => l.Contains("Keep1"));
+        Assert.Contains(capturedLines, l => l.Contains("Keep2"));
+        Assert.Contains(capturedLines, l => l.Contains("Keep3"));
+        
+        // Should NOT contain orphaned keys
+        Assert.DoesNotContain(capturedLines, l => l.Contains("Remove1"));
+        Assert.DoesNotContain(capturedLines, l => l.Contains("Remove2"));
+        
+        // Count of L["key"] lines should be exactly 3
+        var assignmentLines = capturedLines.Count(l => l.TrimStart().StartsWith("L[\""));
+        Assert.Equal(3, assignmentLines);
+    }
+
     #endregion
 }

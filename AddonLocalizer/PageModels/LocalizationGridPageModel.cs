@@ -99,6 +99,21 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     [ObservableProperty]
     private string _translationStatus = string.Empty;
 
+    [ObservableProperty]
+    private int _orphanedEntryCount;
+
+    [ObservableProperty]
+    private bool _hasOrphanedEntries;
+
+    [ObservableProperty]
+    private List<string> _orphanedGlueStrings = [];
+
+    [ObservableProperty]
+    private Dictionary<string, List<string>> _orphanedEntriesByFile = [];
+
+    [ObservableProperty]
+    private int _orphanedFileCount;
+
     private ParseResult? _parseResult;
     private LocalizationDataSet? _localizationData;
     private string? _localizationDirectory;
@@ -235,6 +250,31 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
             Debug.WriteLine($"[GridPage] Created {entries.Count} view models");
 
+            // Calculate orphaned entries (in localization files but not in code)
+            var codeGlueStrings = _parseResult.GlueStrings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            
+            var (orphanedStrings, orphanedByFile) = await Task.Run(() =>
+            {
+                if (_localizationData == null || _parseResult == null) 
+                    return (new List<string>(), new Dictionary<string, List<string>>());
+                
+                // Get all glue strings from localization files
+                var localizationGlueStrings = _localizationData.AllGlueStrings;
+                
+                // Find orphaned entries: in localization files but not in code
+                var orphaned = localizationGlueStrings
+                    .Where(gs => !codeGlueStrings.Contains(gs))
+                    .OrderBy(gs => gs)
+                    .ToList();
+
+                // Get detailed breakdown by file (including GT files)
+                var byFile = _localizationData.GetOrphanedEntriesByFile(codeGlueStrings);
+
+                return (orphaned, byFile);
+            });
+
+            Debug.WriteLine($"[GridPage] Found {orphanedStrings.Count} orphaned entries");
+
             // Update UI on main thread - use assignment instead of Clear/Add
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
@@ -246,6 +286,14 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     Entries = new ObservableCollection<LocalizationEntryViewModel>(entries);
                     TotalCount = entries.Count;
                     
+                    // Update orphaned entry tracking
+                    OrphanedGlueStrings = orphanedStrings;
+                    OrphanedEntryCount = orphanedStrings.Count;
+                    HasOrphanedEntries = orphanedStrings.Count > 0;
+                    
+                    OrphanedEntriesByFile = orphanedByFile;
+                    OrphanedFileCount = orphanedByFile.Count;
+                    
                     ApplyFilters();
                     
                     HasData = FilteredEntries.Count > 0;
@@ -255,8 +303,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     var localeInfo = _localizationData != null 
                         ? $" with {_localizationData.LoadedLocales.Count()} locales" 
                         : "";
+                    var orphanedInfo = HasOrphanedEntries 
+                        ? $" | ?? {OrphanedEntryCount} orphaned" 
+                        : "";
                     StatusMessage = HasData 
-                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}" 
+                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}" 
                         : "No entries to display";
 
                     // Setup property change monitoring for entries
@@ -352,6 +403,29 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         ApplyFilters();
     }
 
+    partial void OnHasOrphanedEntriesChanged(bool value)
+    {
+        ShowOrphanedEntriesCommand.NotifyCanExecuteChanged();
+        CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsLoadingChanged(bool value)
+    {
+        ShowOrphanedEntriesCommand.NotifyCanExecuteChanged();
+        CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+        AutoTranslateCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsSavingChanged(bool value)
+    {
+        CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsTranslatingChanged(bool value)
+    {
+        CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+    }
+
     private void ApplyFilters()
     {
         if (Entries.Count == 0)
@@ -412,14 +486,18 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         var localeInfo = _localizationData != null 
             ? $" with {_localizationData.LoadedLocales.Count()} locales" 
             : "";
+        
+        var orphanedInfo = HasOrphanedEntries 
+            ? $" | ?? {OrphanedEntryCount} orphaned" 
+            : "";
 
         if (hasActiveFilters)
         {
-            StatusMessage = $"Showing {FilteredCount} of {TotalCount} ({TotalCount} total){localeInfo}";
+            StatusMessage = $"Showing {FilteredCount} of {TotalCount} ({TotalCount} total){localeInfo}{orphanedInfo}";
         }
         else
         {
-            StatusMessage = $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}";
+            StatusMessage = $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}";
         }
         
         Debug.WriteLine($"[GridPage] ApplyFilters: FilteredCount={FilteredCount}, HasData={HasData}");
@@ -666,6 +744,185 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         await _dialogService.ShowAlertAsync("Export", "Export functionality coming soon!");
     }
 
+    [RelayCommand(CanExecute = nameof(CanShowOrphanedEntries))]
+    private async Task ShowOrphanedEntries()
+    {
+        if (!HasOrphanedEntries || OrphanedGlueStrings.Count == 0)
+        {
+            await _dialogService.ShowAlertAsync("No Orphaned Entries", 
+                "There are no orphaned entries in the localization files.");
+            return;
+        }
+
+        // Build file breakdown summary
+        var fileBreakdown = new List<string>();
+        foreach (var (fileName, orphanedKeys) in OrphanedEntriesByFile.OrderBy(kvp => kvp.Key))
+        {
+            fileBreakdown.Add($"  - {fileName}: {orphanedKeys.Count} orphaned");
+        }
+        var fileSummary = string.Join("\n", fileBreakdown);
+
+        // Show first 15 entries as preview
+        var previewCount = Math.Min(15, OrphanedGlueStrings.Count);
+        var preview = string.Join("\n", OrphanedGlueStrings.Take(previewCount).Select(s => $"  - {s}"));
+        var moreText = OrphanedGlueStrings.Count > 15 
+            ? $"\n  ... and {OrphanedGlueStrings.Count - 15} more" 
+            : "";
+
+        var cleanupPrompt = "\n\nUse the 'Cleanup' button to remove orphaned entries from all affected files.";
+
+        await _dialogService.ShowAlertAsync(
+            $"Orphaned Entries ({OrphanedEntryCount} in {OrphanedFileCount} files)",
+            $"These glue strings exist in localization files but are not used in the code.\n\n" +
+            $"Affected files:\n{fileSummary}\n\n" +
+            $"Orphaned keys:\n{preview}{moreText}" +
+            cleanupPrompt);
+    }
+
+    private bool CanShowOrphanedEntries() => HasOrphanedEntries && !IsLoading;
+
+    [RelayCommand(CanExecute = nameof(CanCleanupOrphanedEntries))]
+    private async Task CleanupOrphanedEntries()
+    {
+        if (!HasOrphanedEntries || OrphanedEntriesByFile.Count == 0)
+        {
+            await _dialogService.ShowAlertAsync("No Orphaned Entries", 
+                "There are no orphaned entries to clean up.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_localizationDirectory))
+        {
+            await _dialogService.ShowAlertAsync("Error", 
+                "Localization directory not set. Cannot clean up files.");
+            return;
+        }
+
+        // Build confirmation message with file breakdown
+        var fileBreakdown = new List<string>();
+        var totalOrphaned = 0;
+        foreach (var (fileName, orphanedKeys) in OrphanedEntriesByFile.OrderBy(kvp => kvp.Key))
+        {
+            fileBreakdown.Add($"  - {fileName}: {orphanedKeys.Count} entries");
+            totalOrphaned += orphanedKeys.Count;
+        }
+        var fileSummary = string.Join("\n", fileBreakdown);
+
+        var confirm = await _dialogService.ShowConfirmationAsync(
+            "Cleanup Orphaned Entries",
+            $"Remove {totalOrphaned} orphaned entries from {OrphanedFileCount} files?\n\n" +
+            $"Files to update:\n{fileSummary}\n\n" +
+            "Backups will be created automatically.\n\n" +
+            "This action cannot be undone (except by restoring backups).",
+            "Cleanup",
+            "Cancel");
+
+        if (!confirm) return;
+
+        try
+        {
+            IsSaving = true;
+            SaveProgress = 0;
+            StatusMessage = "Cleaning up orphaned entries...";
+
+            var validKeys = _parseResult?.GlueStrings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase) 
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var processedFiles = 0;
+            var totalFiles = OrphanedEntriesByFile.Count;
+            var totalRemoved = 0;
+
+            // Process regular locale files
+            foreach (var localeCode in _localizationData?.LoadedLocales.ToList() ?? [])
+            {
+                var orphanedKeys = _localizationData?.GetOrphanedKeysForLocale(localeCode, validKeys) ?? [];
+                if (orphanedKeys.Count == 0) continue;
+
+                StatusMessage = $"Cleaning up {localeCode}.lua...";
+                
+                // Get existing translations and filter out orphaned ones
+                var existingData = _localizationData?.GetLocaleData(localeCode);
+                if (existingData != null)
+                {
+                    var cleanedData = existingData
+                        .Where(kvp => validKeys.Contains(kvp.Key))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+                    // Save the cleaned file
+                    await _fileWriter.SaveLocaleFileAsync(
+                        _localizationDirectory,
+                        localeCode,
+                        cleanedData,
+                        createBackup: true);
+
+                    totalRemoved += orphanedKeys.Count;
+                    Debug.WriteLine($"[GridPage] Cleaned {orphanedKeys.Count} orphaned entries from {localeCode}.lua");
+                }
+
+                processedFiles++;
+                SaveProgress = (double)processedFiles / totalFiles;
+            }
+
+            // Process GT files
+            foreach (var baseLocale in _localizationData?.LoadedGTLocales.ToList() ?? [])
+            {
+                var orphanedKeys = _localizationData?.GetOrphanedKeysForGTLocale(baseLocale, validKeys) ?? [];
+                if (orphanedKeys.Count == 0) continue;
+
+                var gtFileName = LocaleDefinitions.GetGTFileName(baseLocale);
+                StatusMessage = $"Cleaning up {gtFileName}...";
+
+                // Get existing GT translations and filter out orphaned ones
+                var existingData = _localizationData?.GetGTLocaleData(baseLocale);
+                if (existingData != null)
+                {
+                    var cleanedData = existingData
+                        .Where(kvp => validKeys.Contains(kvp.Key))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+                    // Save the cleaned GT file
+                    await WriteGTFileAsync(
+                        Path.Combine(_localizationDirectory, gtFileName),
+                        baseLocale,
+                        cleanedData);
+
+                    totalRemoved += orphanedKeys.Count;
+                    Debug.WriteLine($"[GridPage] Cleaned {orphanedKeys.Count} orphaned entries from {gtFileName}");
+                }
+
+                processedFiles++;
+                SaveProgress = (double)processedFiles / totalFiles;
+            }
+
+            StatusMessage = "Cleanup complete!";
+            await _dialogService.ShowAlertAsync(
+                "Cleanup Complete",
+                $"Successfully removed {totalRemoved} orphaned entries from {processedFiles} files.\n\n" +
+                "Reloading data...");
+
+            // Reload data to reflect changes
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GridPage] Cleanup error: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            
+            await _dialogService.ShowAlertAsync(
+                "Cleanup Failed",
+                $"An error occurred during cleanup:\n\n{ex.Message}");
+            
+            StatusMessage = $"Error during cleanup: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+            SaveProgress = 0;
+        }
+    }
+
+    private bool CanCleanupOrphanedEntries() => HasOrphanedEntries && !IsSaving && !IsLoading && !IsTranslating;
+
     [RelayCommand]
     private void TestEdit()
     {
@@ -780,7 +1037,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         }
 
         var totalMissing = translationsNeeded.Values.Sum();
-        var localeList = string.Join("\n", translationsNeeded.Select(kvp => $"  • {kvp.Key}: {kvp.Value} missing"));
+        var localeList = string.Join("\n", translationsNeeded.Select(kvp => $"  - {kvp.Key}: {kvp.Value} missing"));
 
         var confirm = await _dialogService.ShowConfirmationAsync(
             "Auto-Translate",
@@ -995,8 +1252,8 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
         foreach (var (key, value) in sortedTranslations)
         {
-            var escapedValue = EscapeString(value);
-            lines.Add($"    L[\"{key}\"] = \"{escapedValue}\"");
+            // Escape the value for Lua output (handles actual newlines, etc.)
+            lines.Add($"    L[\"{key}\"] = \"{EscapeLuaString(value)}\"");
         }
 
         lines.Add("end");
@@ -1005,16 +1262,79 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         await File.WriteAllLinesAsync(filePath, lines);
     }
 
-    private static string EscapeString(string value)
+    /// <summary>
+    /// Escape special characters in strings for Lua output.
+    /// This handles ACTUAL special characters (newlines, tabs, etc.) that need to be 
+    /// represented as escape sequences in the Lua file.
+    /// It does NOT double-escape already-escaped sequences.
+    /// </summary>
+    private static string EscapeLuaString(string value)
     {
-        if (string.IsNullOrEmpty(value)) return value;
+        if (string.IsNullOrEmpty(value))
+            return value;
 
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
+        var sb = new System.Text.StringBuilder(value.Length);
+        
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            
+            switch (c)
+            {
+                case '"':
+                    // Check if already escaped (previous char is backslash and that backslash is not itself escaped)
+                    if (i > 0 && value[i - 1] == '\\' && (i < 2 || value[i - 2] != '\\'))
+                    {
+                        sb.Append(c); // Already escaped, keep as-is
+                    }
+                    else
+                    {
+                        sb.Append("\\\"");
+                    }
+                    break;
+                    
+                case '\\':
+                    // Check if this backslash is an escape sequence prefix
+                    if (i + 1 < value.Length)
+                    {
+                        char next = value[i + 1];
+                        if (next == 'n' || next == 'r' || next == 't' || next == '\\' || next == '"')
+                        {
+                            // This is already an escape sequence, keep it
+                            sb.Append(c);
+                        }
+                        else
+                        {
+                            // Lone backslash, escape it
+                            sb.Append("\\\\");
+                        }
+                    }
+                    else
+                    {
+                        // Backslash at end, escape it
+                        sb.Append("\\\\");
+                    }
+                    break;
+                    
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                    
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                    
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                    
+                default:
+                    sb.Append(c);
+                    break;
+            }
+        }
+        
+        return sb.ToString();
     }
 
     [RelayCommand]

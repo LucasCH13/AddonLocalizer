@@ -323,4 +323,104 @@ public class LocalizationDataSet
     /// Check if a GT locale has been loaded
     /// </summary>
     public bool HasGTLocale(string baseLocale) => _gtTranslations.ContainsKey(baseLocale);
+
+    /// <summary>
+    /// Get orphaned glue strings for a specific locale (entries in locale file but not in valid keys)
+    /// </summary>
+    public List<string> GetOrphanedKeysForLocale(string localeCode, HashSet<string> validKeys)
+    {
+        if (!_translations.TryGetValue(localeCode, out var localeData))
+            return [];
+
+        return localeData.Keys
+            .Where(k => !validKeys.Contains(k))
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get orphaned glue strings for a specific GT locale (entries in GT file but not in valid keys)
+    /// </summary>
+    public List<string> GetOrphanedKeysForGTLocale(string baseLocale, HashSet<string> validKeys)
+    {
+        if (!_gtTranslations.TryGetValue(baseLocale, out var localeData))
+            return [];
+
+        return localeData.Keys
+            .Where(k => !validKeys.Contains(k))
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get a summary of all files containing orphaned entries
+    /// </summary>
+    public Dictionary<string, List<string>> GetOrphanedEntriesByFile(HashSet<string> validKeys)
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        // Check regular locale files
+        foreach (var localeCode in _translations.Keys)
+        {
+            var orphaned = GetOrphanedKeysForLocale(localeCode, validKeys);
+            if (orphaned.Count > 0)
+            {
+                var fileName = $"{localeCode}.lua";
+                result[fileName] = orphaned;
+            }
+        }
+
+        // Check GT locale files
+        foreach (var baseLocale in _gtTranslations.Keys)
+        {
+            var orphaned = GetOrphanedKeysForGTLocale(baseLocale, validKeys);
+            if (orphaned.Count > 0)
+            {
+                var fileName = LocaleDefinitions.GetGTFileName(baseLocale);
+                result[fileName] = orphaned;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Remove orphaned keys from a locale's translations
+    /// </summary>
+    public int RemoveOrphanedKeysFromLocale(string localeCode, HashSet<string> validKeys)
+    {
+        if (!_translations.TryGetValue(localeCode, out var localeData))
+            return 0;
+
+        var orphanedKeys = localeData.Keys
+            .Where(k => !validKeys.Contains(k))
+            .ToList();
+
+        foreach (var key in orphanedKeys)
+        {
+            localeData.Remove(key);
+        }
+
+        return orphanedKeys.Count;
+    }
+
+    /// <summary>
+    /// Remove orphaned keys from a GT locale's translations
+    /// </summary>
+    public int RemoveOrphanedKeysFromGTLocale(string baseLocale, HashSet<string> validKeys)
+    {
+        if (!_gtTranslations.TryGetValue(baseLocale, out var localeData))
+            return 0;
+
+        var orphanedKeys = localeData.Keys
+            .Where(k => !validKeys.Contains(k))
+            .ToList();
+
+        foreach (var key in orphanedKeys)
+        {
+            localeData.Remove(key);
+        }
+
+        return orphanedKeys.Count;
+    }
 }
