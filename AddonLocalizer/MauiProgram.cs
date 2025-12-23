@@ -1,7 +1,4 @@
 ﻿using AddonLocalizer.Core;
-using AddonLocalizer.PageModels;
-using AddonLocalizer.Pages;
-using AddonLocalizer.Services;
 using CommunityToolkit.Maui;
 using Microsoft.Extensions.Logging;
 using Syncfusion.Maui.Core.Hosting;

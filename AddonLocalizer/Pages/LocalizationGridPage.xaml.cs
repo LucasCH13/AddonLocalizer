@@ -1,4 +1,3 @@
-using AddonLocalizer.PageModels;
 using System.Diagnostics;
 using Syncfusion.Maui.DataGrid;
 
@@ -33,6 +32,7 @@ public partial class LocalizationGridPage : ContentPage
         }
     }
 
+    // ReSharper disable once MemberCanBeMadeStatic.Local
     private void DataGrid_CurrentCellBeginEdit(object? sender, DataGridCurrentCellBeginEditEventArgs e)
     {
         Debug.WriteLine($"[LocalizationGridPage] Cell edit started - Row: {e.RowColumnIndex.RowIndex}, Column: {e.RowColumnIndex.ColumnIndex}");
@@ -89,7 +89,7 @@ public partial class LocalizationGridPage : ContentPage
     }
 #endif
 
-    private void DataGrid_CurrentCellEndEdit(object? sender, DataGridCurrentCellEndEditEventArgs e)
+    private static void DataGrid_CurrentCellEndEdit(object? sender, DataGridCurrentCellEndEditEventArgs e)
     {
         // Force the grid to commit the edit
         Debug.WriteLine($"[LocalizationGridPage] Cell edit completed - Row: {e.RowColumnIndex.RowIndex}, Column: {e.RowColumnIndex.ColumnIndex}");

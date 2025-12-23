@@ -1,6 +1,5 @@
 using AddonLocalizer.Core.Interfaces;
 using AddonLocalizer.Core.Models;
-using AddonLocalizer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 

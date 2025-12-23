@@ -1,5 +1,3 @@
-using AddonLocalizer.Services;
-
 namespace AddonLocalizer.Platforms.Android;
 
 public class FolderPickerService : IFolderPickerService

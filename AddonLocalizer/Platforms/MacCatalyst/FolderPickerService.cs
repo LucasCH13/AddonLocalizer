@@ -1,5 +1,3 @@
-using AddonLocalizer.Services;
-
 namespace AddonLocalizer.Platforms.MacCatalyst;
 
 public class FolderPickerService : IFolderPickerService

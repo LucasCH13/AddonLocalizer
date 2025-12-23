@@ -1,6 +1,4 @@
-﻿using AddonLocalizer.Core.Models;
-
-namespace AddonLocalizer.Tests.Core.Services;
+﻿namespace AddonLocalizer.Tests.Core.Services;
 
 public class LocalizationFileWriterServiceTests
 {

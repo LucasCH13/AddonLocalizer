@@ -1,4 +1,3 @@
-using AddonLocalizer.Services;
 using Windows.Storage.Pickers;
 
 namespace AddonLocalizer.Platforms.Windows;

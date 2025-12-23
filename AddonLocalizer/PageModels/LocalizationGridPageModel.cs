@@ -3,7 +3,6 @@ using AddonLocalizer.Core.Interfaces;
 using AddonLocalizer.Core.Models;
 using AddonLocalizer.Core.Services;
 using AddonLocalizer.Models;
-using AddonLocalizer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Diagnostics;

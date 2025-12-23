@@ -1,5 +1,3 @@
-using AddonLocalizer.Services;
-
 namespace AddonLocalizer.Platforms.iOS;
 
 public class FolderPickerService : IFolderPickerService
