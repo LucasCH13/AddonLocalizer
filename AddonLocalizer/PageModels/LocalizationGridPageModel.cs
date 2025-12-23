@@ -594,16 +594,27 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         ShowOrphanedEntriesCommand.NotifyCanExecuteChanged();
         CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
         AutoTranslateCommand.NotifyCanExecuteChanged();
+        TranslateLocaleCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsSavingChanged(bool value)
     {
         CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+        AutoTranslateCommand.NotifyCanExecuteChanged();
+        TranslateLocaleCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsTranslatingChanged(bool value)
     {
         CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+        AutoTranslateCommand.NotifyCanExecuteChanged();
+        TranslateLocaleCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnEntriesChanged(ObservableCollection<LocalizationEntryViewModel> value)
+    {
+        AutoTranslateCommand.NotifyCanExecuteChanged();
+        TranslateLocaleCommand.NotifyCanExecuteChanged();
     }
 
     private void ApplyFilters()
@@ -1305,16 +1316,22 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     [RelayCommand(CanExecute = nameof(CanAutoTranslate))]
     private async Task AutoTranslate()
     {
+        Debug.WriteLine($"[GridPage] AutoTranslate called - IsConfigured: {_translateService.IsConfigured}");
+        Debug.WriteLine($"[GridPage] AutoTranslate - Entries.Count: {Entries.Count}, IsTranslating: {IsTranslating}, IsSaving: {IsSaving}, IsLoading: {IsLoading}");
+        
         if (!_translateService.IsConfigured)
         {
             // Try to configure from environment variable
+            Debug.WriteLine("[GridPage] AutoTranslate - trying to configure from environment");
             if (!_translateService.TryConfigureFromEnvironment())
             {
+                Debug.WriteLine("[GridPage] AutoTranslate - configuration failed");
                 await _dialogService.ShowAlertAsync("Not Configured", 
                     "Google Translate service not configured.\n\n" +
                     "Please set the GOOGLE_APPLICATION_CREDENTIALS environment variable to the path of your service account JSON key file and restart the application.");
                 return;
             }
+            Debug.WriteLine("[GridPage] AutoTranslate - configured from environment");
         }
 
         if (string.IsNullOrWhiteSpace(_localizationDirectory))
@@ -1441,7 +1458,12 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         }
     }
 
-    private bool CanAutoTranslate() => !IsTranslating && !IsSaving && !IsLoading && Entries.Count > 0;
+    private bool CanAutoTranslate()
+    {
+        var canExecute = !IsTranslating && !IsSaving && !IsLoading && Entries.Count > 0;
+        Debug.WriteLine($"[GridPage] CanAutoTranslate: {canExecute} (IsTranslating={IsTranslating}, IsSaving={IsSaving}, IsLoading={IsLoading}, Entries.Count={Entries.Count})");
+        return canExecute;
+    }
 
     private bool HasGTTranslationForBase(LocalizationEntryViewModel entry, string baseLocale)
     {
@@ -1599,9 +1621,8 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     googleLangCode,
                     new Progress<TranslationProgress>(p =>
                     {
-                        var localeProgress = (double)p.ProcessedCount / p.TotalCount;
-                        var overallProgress = (processedLocales + localeProgress) / baseLocales.Count;
-                        TranslationProgress = overallProgress;
+                        TranslationProgress = (double)p.ProcessedCount / p.TotalCount;
+                        TranslationStatus = $"Translating to {baseLocale}: {p.ProcessedCount}/{p.TotalCount}";
                     }));
 
                 // Update GT file - this will overwrite existing translations for these entries
